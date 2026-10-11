@@ -81,6 +81,14 @@ final class InvoiceService
     /** Von HelloCash fuer NEUE Kunden akzeptierte Laender (POST /customers, country_code-Enum). */
     private const HELLOCASH_COUNTRIES = ['at', 'de', 'cz', 'ch', 'sk', 'hu', 'bg', 'pl', 'ro', 'fr', 'es'];
 
+    /** Kundenzuordnung (connect_shops.invoice_customer_match, Migration 0095) */
+    public const CUSTOMER_MATCH_EMAIL_NAME = 'email_name';
+    public const CUSTOMER_MATCH_EMAIL = 'email';
+    public const CUSTOMER_MATCH_LABELS = [
+        self::CUSTOMER_MATCH_EMAIL_NAME => 'E-Mail-Adresse, sonst Vor- und Nachname',
+        self::CUSTOMER_MATCH_EMAIL => 'Nur E-Mail-Adresse',
+    ];
+
     public function __construct(
         private readonly PDO $pdo,
         private readonly ConnectorFactory $connectorFactory
@@ -156,7 +164,7 @@ final class InvoiceService
 
         $customerId = null;
         try {
-            $customerId = $this->resolveCustomer($targetConnector, $orderRow, $notes);
+            $customerId = $this->resolveCustomer($targetConnector, $orderRow, $notes, ($shopRow['invoice_customer_match'] ?? '') === self::CUSTOMER_MATCH_EMAIL);
         } catch (\Throwable $e) {
             $notes[] = 'Kunde: ' . $e->getMessage();
         }
@@ -555,14 +563,24 @@ final class InvoiceService
      * NEUE Kunden Pflichtfeld mit fester Werteliste) -- sonst wird die Rechnung spaeter
      * ohne Kundenzuordnung angelegt (customer_id ist bei HelloCash optional).
      *
+     * $emailOnly (Einstellung "Nur E-Mail-Adresse"): keine Suche per Name -- gleichnamige Kunden
+     * werden sonst verwechselt. Bestellung ohne E-Mail = kein Kunde (keine Neuanlage nur mit
+     * Namen, sonst entstuende bei jeder solchen Bestellung ein weiterer Kunde).
+     *
      * @param array<string, mixed> $orderRow
      * @param list<string> $notes
      */
-    private function resolveCustomer(ConnectorInterface $targetConnector, array $orderRow, array &$notes): ?int
+    private function resolveCustomer(ConnectorInterface $targetConnector, array $orderRow, array &$notes, bool $emailOnly = false): ?int
     {
         $email = trim((string) ($orderRow['email'] ?? ''));
         $firstName = trim((string) ($orderRow['customer_first_name'] ?? ''));
         $lastName = trim((string) ($orderRow['customer_last_name'] ?? ''));
+
+        if ($emailOnly && $email === '') {
+            $notes[] = 'Kein Kunde zugeordnet (Bestellung ohne E-Mail-Adresse, Zuordnung nur per E-Mail eingestellt).';
+
+            return null;
+        }
 
         if ($email !== '') {
             foreach ($targetConnector->read('customer', ['search' => rawurlencode($email)]) as $row) {
@@ -572,7 +590,7 @@ final class InvoiceService
             }
         }
 
-        if ($firstName !== '' && $lastName !== '') {
+        if (!$emailOnly && $firstName !== '' && $lastName !== '') {
             foreach ($targetConnector->read('customer', ['search' => rawurlencode($firstName . ' ' . $lastName)]) as $row) {
                 if (isset($row['id'])
                     && strcasecmp(trim((string) ($row['first_name'] ?? '')), $firstName) === 0
@@ -867,6 +885,15 @@ final class InvoiceService
             $row['invoice_signature_mandatory'] = $sig->fetchColumn();
         } catch (\Throwable) {
             $row['invoice_signature_mandatory'] = null;
+        }
+
+        // Kundenzuordnung (Migration 0095) ebenso -- ohne Spalte bisheriges Verhalten
+        try {
+            $match = $this->pdo->prepare('SELECT invoice_customer_match FROM connect_shops WHERE shop = :shop');
+            $match->execute(['shop' => $shop]);
+            $row['invoice_customer_match'] = (string) $match->fetchColumn() === self::CUSTOMER_MATCH_EMAIL ? self::CUSTOMER_MATCH_EMAIL : self::CUSTOMER_MATCH_EMAIL_NAME;
+        } catch (\Throwable) {
+            $row['invoice_customer_match'] = self::CUSTOMER_MATCH_EMAIL_NAME;
         }
 
         return $row;

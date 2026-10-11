@@ -527,6 +527,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_
     } catch (\Throwable) {
         // Migration 0072 noch nicht eingespielt
     }
+    // Kundenzuordnung (Migration 0095) ebenso getrennt
+    if (isset(\Connect\Sync\InvoiceService::CUSTOMER_MATCH_LABELS[$_POST['invoice_customer_match'] ?? ''])) {
+        try {
+            $pdo->prepare('UPDATE connect_shops SET invoice_customer_match = :match WHERE shop = :shop')
+                ->execute(['match' => (string) $_POST['invoice_customer_match'], 'shop' => $shop]);
+        } catch (\Throwable) {
+            // Migration 0095 noch nicht eingespielt
+        }
+    }
 
     $flashMessage = 'Einstellung für Rechnungen/Aufträge gespeichert.';
     $flashType = 'success';
@@ -896,6 +905,16 @@ try {
     $shopSettings['invoice_signature_mandatory'] = $sigValue !== false ? (int) $sigValue : 0;
 } catch (\Throwable) {
     $shopSettings['invoice_signature_mandatory'] = null;
+}
+// Kundenzuordnung (Migration 0095) getrennt gelesen, null = Spalte fehlt noch (Auswahl ausgeblendet)
+try {
+    $matchStmt = $pdo->prepare('SELECT invoice_customer_match FROM connect_shops WHERE shop = :shop');
+    $matchStmt->execute(['shop' => $shop]);
+    $matchValue = (string) $matchStmt->fetchColumn();
+    $shopSettings['invoice_customer_match'] = isset(\Connect\Sync\InvoiceService::CUSTOMER_MATCH_LABELS[$matchValue])
+        ? $matchValue : \Connect\Sync\InvoiceService::CUSTOMER_MATCH_EMAIL_NAME;
+} catch (\Throwable) {
+    $shopSettings['invoice_customer_match'] = null;
 }
 // Benachrichtigungen + Abo (Migration 0079): Empfaenger, Shopify-Adresse, eigenes SMTP erlaubt?
 $notifySettings = (new \Connect\Notify\Notifier($pdo, $app->config))->settings($shop);
@@ -1748,6 +1767,17 @@ require __DIR__ . '/_header.php';
                             <label class="form-label">Bei Problemen Mail an</label>
                             <div class="form-control-plaintext small">an <?php echo htmlspecialchars($notifySettings['effective'] ?? 'office@oview.at'); ?> · <a href="#setup-notify">ändern</a></div>
                         </div>
+                        <?php if ($shopSettings['invoice_customer_match'] !== null): ?>
+                            <div class="col-md-8">
+                                <label class="form-label">Kunden zuordnen über</label>
+                                <select name="invoice_customer_match" class="form-select">
+                                    <?php foreach (\Connect\Sync\InvoiceService::CUSTOMER_MATCH_LABELS as $matchKey => $matchLabel): ?>
+                                        <option value="<?php echo htmlspecialchars($matchKey); ?>" <?php echo $shopSettings['invoice_customer_match'] === $matchKey ? 'selected' : ''; ?>><?php echo htmlspecialchars($matchLabel); ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                                <small class="text-secondary">So sucht oView den Kunden in <?php echo htmlspecialchars($targetName); ?>. Nicht gefunden = neuer Kunde. Bei „Nur E-Mail-Adresse“ werden gleichnamige Kunden nie verwechselt – Bestellungen ohne E-Mail-Adresse bekommen dann keinen Kunden.</small>
+                            </div>
+                        <?php endif; ?>
 
                         <div class="col-12 mt-3">
                             <label class="form-check">

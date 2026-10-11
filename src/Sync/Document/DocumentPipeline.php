@@ -321,7 +321,8 @@ final class DocumentPipeline
 
         if ($profile->customerObjectKey !== null) {
             try {
-                $record['target_customer_id'] = $this->resolveCustomer($targetConnector, $profile, $record, $dryRun, $notes);
+                $record['target_customer_id'] = $this->resolveCustomer($targetConnector, $profile, $record, $dryRun, $notes,
+                    ($shopRow['invoice_customer_match'] ?? '') === InvoiceService::CUSTOMER_MATCH_EMAIL);
             } catch (\Throwable $e) {
                 $notes[] = 'Kunde: ' . $e->getMessage();
             }
@@ -338,11 +339,13 @@ final class DocumentPipeline
      * Kunden-Vorschritt laut Belegprofil: zuerst per E-Mail suchen, dann per
      * Vor- und Nachname, sonst ueber die Kunden-Vorlage neu anlegen (portiert
      * aus InvoiceService::resolveCustomer(), dort fest fuer HelloCash).
+     * $emailOnly (Einstellung "Nur E-Mail-Adresse", Migration 0095): keine Suche per Name,
+     * Bestellung ohne E-Mail = kein Kunde (siehe InvoiceService::resolveCustomer()).
      *
      * @param array<string, mixed> $record aufbereitete Bestellung
      * @param list<string> $notes
      */
-    private function resolveCustomer(ConnectorInterface $targetConnector, DocumentProfile $profile, array $record, bool $dryRun, array &$notes): int|string|null
+    private function resolveCustomer(ConnectorInterface $targetConnector, DocumentProfile $profile, array $record, bool $dryRun, array &$notes, bool $emailOnly = false): int|string|null
     {
         $objectKey = (string) $profile->customerObjectKey;
         $email = trim((string) ($record['email'] ?? ''));
@@ -350,6 +353,12 @@ final class DocumentPipeline
         $lastName = trim((string) ($record['customer_last_name'] ?? ''));
         $idField = $profile->customerIdField;
         $normalizeId = static fn (mixed $id): int|string => ctype_digit((string) $id) ? (int) $id : (string) $id;
+
+        if ($emailOnly && $email === '') {
+            $notes[] = 'Kein Kunde zugeordnet (Bestellung ohne E-Mail-Adresse, Zuordnung nur per E-Mail eingestellt).';
+
+            return null;
+        }
 
         if ($email !== '' && $profile->customerEmailField !== null) {
             foreach ($targetConnector->read($objectKey, [$profile->customerSearchParam => rawurlencode($email)]) as $row) {
@@ -359,7 +368,7 @@ final class DocumentPipeline
             }
         }
 
-        if ($firstName !== '' && $lastName !== '' && $profile->customerFirstNameField !== null && $profile->customerLastNameField !== null) {
+        if (!$emailOnly && $firstName !== '' && $lastName !== '' && $profile->customerFirstNameField !== null && $profile->customerLastNameField !== null) {
             foreach ($targetConnector->read($objectKey, [$profile->customerSearchParam => rawurlencode($firstName . ' ' . $lastName)]) as $row) {
                 if (isset($row[$idField])
                     && strcasecmp(trim((string) ($row[$profile->customerFirstNameField] ?? '')), $firstName) === 0
