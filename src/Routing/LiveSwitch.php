@@ -61,8 +61,22 @@ final class LiveSwitch
         private readonly Crypto $crypto,
         private readonly HttpClient $httpClient,
         private readonly string $appUrl,
-        private readonly string $apiVersion
+        private readonly string $apiVersion,
+        private readonly ?\Connect\Shopify\TokenRefresher $tokenRefresher = null
     ) {
+    }
+
+    /**
+     * Zugangsdaten der Shopify-Connection, ablaufende Tokens vorher erneuert (ohne
+     * TokenRefresher nur entschluesselt).
+     *
+     * @return array<string, mixed>
+     */
+    private function shopifyCredentials(int $connectionId, string $encrypted): array
+    {
+        return $this->tokenRefresher !== null
+            ? $this->tokenRefresher->freshCredentials($this->pdo, $this->crypto, $connectionId)
+            : $this->crypto->decryptArray($encrypted);
     }
 
     /**
@@ -191,7 +205,7 @@ final class LiveSwitch
         $connectionId = (int) $connection['id'];
 
         try {
-            $credentials = $this->crypto->decryptArray((string) $connection['credentials']);
+            $credentials = $this->shopifyCredentials($connectionId, (string) $connection['credentials']);
         } catch (\Throwable $e) {
             return ['Shopify-Zugangsdaten nicht lesbar -- Webhook-Abos unverändert (' . $e->getMessage() . ').'];
         }
@@ -297,16 +311,16 @@ final class LiveSwitch
     public function inspectWebhooks(string $shop): array
     {
         $connStmt = $this->pdo->prepare(
-            "SELECT c.credentials FROM connect_connections c
+            "SELECT c.id, c.credentials FROM connect_connections c
              JOIN connect_connector_types t ON t.id = c.connector_type_id
              WHERE c.shop = :shop AND t.type_key = 'shopify' LIMIT 1"
         );
         $connStmt->execute(['shop' => $shop]);
-        $encrypted = $connStmt->fetchColumn();
-        if ($encrypted === false) {
+        $connection = $connStmt->fetch(PDO::FETCH_ASSOC);
+        if ($connection === false) {
             throw new \RuntimeException('Keine Shopify-Connection.');
         }
-        $credentials = $this->crypto->decryptArray((string) $encrypted);
+        $credentials = $this->shopifyCredentials((int) $connection['id'], (string) $connection['credentials']);
         $shopDomain = (string) parse_url((string) ($credentials['base_url'] ?? ''), PHP_URL_HOST);
         $token = (string) ($credentials['header_value'] ?? '');
         if ($shopDomain === '' || $token === '') {

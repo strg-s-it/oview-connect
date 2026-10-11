@@ -30,7 +30,8 @@ $buildLiveSwitch = static fn (): LiveSwitch => new LiveSwitch(
     $app->crypto,
     new HttpClient(),
     $app->config->require('CONNECT_APP_URL'),
-    $app->config->optional('CONNECT_SHOPIFY_API_VERSION', '2026-07')
+    $app->config->optional('CONNECT_SHOPIFY_API_VERSION', '2026-07'),
+    \Connect\Shopify\TokenRefresher::fromConfig($app->config)
 );
 
 // Abos live bei Shopify abfragen (nur lesen) oder passend zum Schalter abgleichen

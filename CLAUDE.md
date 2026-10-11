@@ -111,15 +111,26 @@ bin/scheduler.php      Hintergrund-Jobs (CLI, atomarer Claim, 1 Job je Aufruf, m
   `absolute` gilt für die ganze Position. Doku: https://myhellocash.com/docs/api (OpenAPI eingebettet).
 - `_…_body.php`-Dateien werden eingebunden und bekommen `$app` von der aufrufenden Seite.
 - „Token übernehmen“ setzt Connections auf `pending` zurück → danach „Verbindung testen“.
+- Nie den Shopify-Token direkt aus `credentials['header_value']` lesen – immer über
+  `ConnectorFactory` oder `TokenRefresher::freshCredentials()` (ablaufende Tokens!).
+- `GET_LOCK` nur auf oberster Ebene (Scheduler-Aufgaben), nie verschachtelt (MariaDB 5.5).
+- helloCash v1-Tokens (alte Welt) scheitern in v2 mit „Insufficient scope“ (403). Umstieg-Seite prüft
+  per `TargetAccessCheck::quickCheckToken()`, ob der bestehende Token schon v2-tauglich ist.
 
 ## Offene Themen
 
-- **Shopify: ablaufende Offline-Tokens, Pflicht ab 1.1.2027.** Connect erneuert Tokens bereits
-  (`TokenRefresher`), tauscht den alten unbefristeten Token aber nie um. Der Tausch geht serverseitig
-  (`subject_token` = alter Token, `expiring=1`), ist unumkehrbar und **widerruft den Token der alten
-  Welt sofort**. Mehrere Stellen lesen `header_value` ohne Refresh (ScopeCheck, LiveSwitch,
-  ShopActivations, prepare.php). Entscheidung bis Anfang Dezember 2026: erst nach Umzug aller Shops
-  oder gemeinsame Token-Quelle beider Welten. Erneuern braucht eine Sperre pro Shop.
+- **Shopify: ablaufende Offline-Tokens, Pflicht ab 1.1.2027.** Plan in Etappen:
+  1. ✅ (2026-10-11) `TokenRefresher` erneuert mit Zeilensperre (`SELECT … FOR UPDATE`, **kein
+     `GET_LOCK`** – MariaDB 5.5 gibt sonst andere Sperren der Verbindung frei), liest nach der Sperre
+     neu, speichert `refresh_token_expires_at`, merkt Fehlschläge in `config.token_refresh`.
+     Alle direkten Token-Leser nutzen `TokenRefresher::freshCredentials()`. `Shopify\TokenHealth`
+     mailt täglich bei Fehlschlag oder bald ablaufendem Refresh-Token.
+  2. Umtausch pro Shop (`subject_token` = alter Token, `requested_token_type=…offline-access-token`,
+     `expiring=1`, serverseitig, Händler muss nichts tun) – **nur bei `live_in_connect = 1`**, weil der
+     Tausch unumkehrbar ist und den Token der alten Welt sofort widerruft. Erster Kandidat: Danys.
+  3. Neuinstallationen gleich mit `expiring=1`.
+  4. Falls Anfang Dezember 2026 noch Shops in der alten Welt sind: `oview_shopify_get_token()` holt
+     den Token per signiertem internem Aufruf von Connect.
 - Verschlüsselung: getrennter Schlüssel für Link-Signaturen (`MessageService`) statt
   `CONNECT_ENCRYPTION_KEY`, AES-GCM statt CBC (braucht Neu-Verschlüsselung aller Credentials).
 - Typ-Kommentare teils ungenau (z. B. Rückgabe von `ProductComparisonService::compare()` ohne

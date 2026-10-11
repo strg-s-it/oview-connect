@@ -213,7 +213,7 @@ final class ShopActivations
 
         $warning = null;
         try {
-            $credentials = $this->crypto->decryptArray((string) $shopify['credentials']);
+            $credentials = \Connect\Shopify\TokenRefresher::fromConfig($this->config)->freshCredentials($this->pdo, $this->crypto, (int) $shopify['id']);
             $shopDomain = str_replace(['https://', 'http://'], '', (string) ($credentials['base_url'] ?? ''));
             $accessToken = (string) ($credentials['header_value'] ?? '');
 

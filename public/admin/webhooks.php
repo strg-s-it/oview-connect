@@ -17,6 +17,7 @@ use Connect\Config;
 use Connect\Database;
 use Connect\Http\HttpClient;
 use Connect\Security\Crypto;
+use Connect\Shopify\TokenRefresher;
 use Connect\Shopify\WebhookRegistrar;
 
 $config = Config::load();
@@ -53,7 +54,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'subsc
         } else {
             try {
                 $crypto = new Crypto($config->require('CONNECT_ENCRYPTION_KEY'));
-                $credentials = $crypto->decryptArray((string) $connRow['credentials']);
+                $credentials = TokenRefresher::fromConfig($config)->freshCredentials($pdo, $crypto, $connectionId);
                 $shopDomain = str_replace(['https://', 'http://'], '', (string) ($credentials['base_url'] ?? ''));
                 $accessToken = (string) ($credentials['header_value'] ?? '');
 
@@ -92,7 +93,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'unsub
     } else {
         try {
             $crypto = new Crypto($config->require('CONNECT_ENCRYPTION_KEY'));
-            $credentials = $crypto->decryptArray((string) $connRow['credentials']);
+            $credentials = TokenRefresher::fromConfig($config)->freshCredentials($pdo, $crypto, $connectionId);
             $shopDomain = str_replace(['https://', 'http://'], '', (string) ($credentials['base_url'] ?? ''));
             $accessToken = (string) ($credentials['header_value'] ?? '');
 

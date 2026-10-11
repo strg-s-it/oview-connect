@@ -113,9 +113,14 @@ final class GenericHttpConnector implements ConnectorInterface
      * anders als testConnection(), das beim ersten lesbaren Object aufhoert. Zeigt, wofuer
      * einem Token Berechtigungen fehlen (helloCash v2: "Insufficient scope", HTTP 403).
      *
+     * $stopAtFirstFailure: Schnellpruefung -- beim ersten nicht lesbaren Object (ausser denen in
+     * $optionalKeys) aufhoeren. Reicht fuer "vollstaendig ja/nein" und spart bei alten Tokens
+     * die uebrigen Aufrufe (Rate-Limit).
+     *
+     * @param list<string> $optionalKeys
      * @return array<string, array{label: string, ok: bool, status: ?int, error: ?string}>
      */
-    public function checkReadAccess(): array
+    public function checkReadAccess(bool $stopAtFirstFailure = false, array $optionalKeys = []): array
     {
         $result = [];
         foreach ($this->objectsByKey as $objectKey => $object) {
@@ -134,6 +139,9 @@ final class GenericHttpConnector implements ConnectorInterface
                 ];
             } catch (\Throwable $e) {
                 $result[$objectKey] = ['label' => $object->label, 'ok' => false, 'status' => null, 'error' => $e->getMessage()];
+            }
+            if ($stopAtFirstFailure && !$result[$objectKey]['ok'] && !in_array($objectKey, $optionalKeys, true)) {
+                break;
             }
         }
 

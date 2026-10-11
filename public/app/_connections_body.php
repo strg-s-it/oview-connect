@@ -193,7 +193,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'test_
                 // aktiv), sah bisher aber bei jedem erneuten Verbindungstest
                 // faelschlich wie ein Fehler aus.
                 if (!in_array('products/update', $registrar->subscribedTopics($connectionId), true)) {
-                    $credentials = $app->crypto->decryptArray((string) $owned['credentials']);
+                    $credentials = TokenRefresher::fromConfig($app->config)->freshCredentials($pdo, $app->crypto, $connectionId);
                     $shopDomain = str_replace(['https://', 'http://'], '', (string) ($credentials['base_url'] ?? ''));
                     $accessToken = (string) ($credentials['header_value'] ?? '');
 

@@ -13,6 +13,9 @@ declare(strict_types=1);
  * "Berechtigungen jetzt pruefen" fragt die Scopes ALLER Shops live bei Shopify ab: Connect-Shops
  * ueber ScopeCheck, Shops nur der alten Welt mit deren Token aus oview_stores (nur lesend,
  * Ergebnis in connect_legacy_scope_checks, Migration 0085).
+ * "helloCash-Token pruefen" probiert bei Shops nur der alten Welt deren bestehenden helloCash-Token
+ * gegen die API v2 (nur lesend, Schnellpruefung): hat ihn der Merchant schon neu generiert, muss er
+ * fuer den Umzug nichts mehr tun (Ergebnis in connect_legacy_hellocash_checks, Migration 0094).
  */
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
@@ -78,6 +81,52 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'check
         . ($recent > 0 ? ", {$recent} waren schon aktuell (letzte 15 Min.)" : '') . '.'
         . ($remaining > 0 ? " Noch {$remaining} offen – bitte noch einmal klicken." : ' Alle Shops sind geprüft.')
         . ($failed !== [] ? ' Nicht prüfbar: ' . implode(' · ', $failed) : '');
+    $flashType = $remaining > 0 || $failed !== [] ? 'warning' : 'success';
+    $merchants = $directory->all();
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'check_hellocash') {
+    // Wie oben in Etappen (~45 s je Klick). helloCash hat ein Anfrage-Limit (Connector Type) --
+    // die Schnellpruefung hoert beim ersten fehlenden Zugriff auf, ein alter Token kostet so
+    // meist nur ein, zwei Aufrufe. Bereits erledigte und in den letzten 24 h gepruefte Shops
+    // (Token unveraendert) werden uebersprungen.
+    @set_time_limit(90);
+    $crypto = new Crypto($config->require('CONNECT_ENCRYPTION_KEY'));
+    $http = new \Connect\Http\HttpClient();
+    $accessCheck = new \Connect\Setup\TargetAccessCheck($pdo, $crypto, new \Connect\Connector\ConnectorFactory($pdo, $crypto, $http), $config, $http);
+    $checked = 0;
+    $recent = 0;
+    $remaining = 0;
+    $failed = [];
+    $started = time();
+    foreach ($merchants as $m) {
+        if ($m['world'] !== 'legacy' || $m['token'] === 'ok') {
+            continue;
+        }
+        $checkedAt = $m['token_checked_at'] !== null ? strtotime((string) $m['token_checked_at']) : false;
+        if ($checkedAt !== false && $checkedAt > time() - 86400) {
+            $recent++;
+            continue;
+        }
+        if (time() - $started > 45) {
+            $remaining++;
+            continue;
+        }
+        try {
+            $error = $directory->checkLegacyHelloCash($m['shop'], $accessCheck);
+        } catch (\Throwable $ex) {
+            $error = $ex->getMessage(); // z.B. Migration 0094 fehlt
+        }
+        if ($error !== null) {
+            $failed[] = $m['shop'] . ': ' . $error;
+        } else {
+            $checked++;
+        }
+    }
+    $flashMessage = "{$checked} helloCash-Token gegen die API v2 geprüft"
+        . ($recent > 0 ? ", {$recent} waren schon aktuell (letzte 24 Std.)" : '') . '.'
+        . ($remaining > 0 ? " Noch {$remaining} offen – bitte noch einmal klicken." : ' Alle Shops der alten Welt sind geprüft.')
+        . ($failed !== [] ? ' Nicht prüfbar: ' . implode(' · ', array_slice($failed, 0, 15)) . (count($failed) > 15 ? ' …' : '') : '');
     $flashType = $remaining > 0 || $failed !== [] ? 'warning' : 'success';
     $merchants = $directory->all();
 }
@@ -158,6 +207,7 @@ require dirname(__DIR__) . '/app/_header.php';
         </div>
         <div class="card-actions d-flex gap-2">
             <form method="post" class="m-0"><input type="hidden" name="action" value="check_scopes"><button type="submit" class="btn btn-sm" title="Scopes aller noch nicht umgestellten Shops (alte und neue Welt) live bei Shopify abfragen">Berechtigungen jetzt prüfen</button></form>
+            <form method="post" class="m-0"><input type="hidden" name="action" value="check_hellocash"><button type="submit" class="btn btn-sm" title="Bestehenden helloCash-Token der Shops der alten Welt gegen die API v2 prüfen (nur lesend) – wer schon einen neuen Token hat, muss nichts mehr tun">helloCash-Token prüfen</button></form>
             <a href="cleanup.php" class="btn btn-sm">Aufräumen (nicht erreichbare Shops)</a>
             <a href="messages.php?new=1&amp;template=prepare" class="btn btn-sm btn-primary">Nachricht an Offene</a>
         </div>
@@ -194,6 +244,12 @@ require dirname(__DIR__) . '/app/_header.php';
                                 'missing' => '<span class="badge bg-red-lt">unvollständig</span>',
                                 'unknown' => '<span class="badge bg-secondary-lt">offen</span>',
                             ][$m['token']] ?? ''; ?>
+                            <?php if ($m['token_note'] !== null): ?>
+                                <div class="text-secondary"><?php echo $e($m['token_note']); ?></div>
+                            <?php endif; ?>
+                            <?php if ($m['token_checked_at'] !== null): ?>
+                                <div class="text-secondary">geprüft <?php echo $e(substr((string) $m['token_checked_at'], 0, 16)); ?></div>
+                            <?php endif; ?>
                         </td>
                         <td class="small text-secondary"><?php echo $last !== null ? $e(substr((string) $last['last_sent'], 0, 10)) . ((int) $last['sent'] > 1 ? ' (' . (int) $last['sent'] . ' gesamt)' : '') : '–'; ?></td>
                         <td class="text-end">
@@ -213,7 +269,7 @@ require dirname(__DIR__) . '/app/_header.php';
     </div>
     <div class="card-footer small text-secondary">
         Bereits umgestellte Shops sind ausgeblendet. Shopify-Berechtigungen: „geprüft“ = live bei Shopify abgefragt („Berechtigungen jetzt prüfen“, auch für Shops nur der alten Welt), „Stand alte Welt“ = vom letzten Bestätigen bzw. Öffnen der App.
-        helloCash-Token: „erledigt“ = neu generiert und Zugriff für Connect vollständig.
+        helloCash-Token: „erledigt“ = Zugriff für Connect (API v2) vollständig – entweder neu generiert und hinterlegt oder der bestehende Token der alten Welt hat ihn schon („helloCash-Token prüfen“, nur lesend; ändert sich der Token in der alten Welt, gilt die Prüfung nicht mehr).
     </div>
 </div>
 

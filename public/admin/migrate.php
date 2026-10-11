@@ -38,7 +38,7 @@ $flashType = 'info';
 
 $migrator = new ShopMigrator($pdo, $app->config, $app->crypto);
 $factory = new ConnectorFactory($pdo, $app->crypto, new HttpClient(), TokenRefresher::fromConfig($app->config));
-$liveSwitch = new LiveSwitch($pdo, $app->crypto, new HttpClient(), $app->config->require('CONNECT_APP_URL'), $app->config->optional('CONNECT_SHOPIFY_API_VERSION', '2026-07'));
+$liveSwitch = new LiveSwitch($pdo, $app->crypto, new HttpClient(), $app->config->require('CONNECT_APP_URL'), $app->config->optional('CONNECT_SHOPIFY_API_VERSION', '2026-07'), TokenRefresher::fromConfig($app->config));
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = (string) ($_POST['action'] ?? '');

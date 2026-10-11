@@ -71,7 +71,8 @@ try {
             new Crypto($config->require('CONNECT_ENCRYPTION_KEY')),
             new HttpClient(),
             $config->require('CONNECT_APP_URL'),
-            $config->optional('CONNECT_SHOPIFY_API_VERSION', '2026-07')
+            $config->optional('CONNECT_SHOPIFY_API_VERSION', '2026-07'),
+            \Connect\Shopify\TokenRefresher::fromConfig($config)
         ))->syncWebhooks($result['shop']);
     } catch (\Throwable $e) {
         $notes[] = 'Webhook-Abgleich fehlgeschlagen: ' . $e->getMessage();

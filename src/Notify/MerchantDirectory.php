@@ -21,7 +21,8 @@ use PDO;
  * umgestellt, legacy = nur alte Welt), name, email + email_source, plan, plan_label, system,
  * scopes_missing (null = unbekannt), setup (done/open/null), installed (Y-m-d|null),
  * stock_paused, optout, token (ok|missing|unknown: helloCash-Token mit Zugriff fuer API v2, siehe
- * Connect\Setup\TargetAccessCheck -- vorab hinterlegt oder an der Connection geprueft).
+ * Connect\Setup\TargetAccessCheck -- vorab hinterlegt, an der Connection geprueft oder, bei Shops
+ * der alten Welt, deren Token schon v2-tauglich: token_note, token_checked_at, Migration 0094).
  */
 final class MerchantDirectory
 {
@@ -31,6 +32,9 @@ final class MerchantDirectory
 
     /** @var array<string, string> Shopify-Token der alten Welt je Shop (nur fuer checkLegacyScopes, nie in all()) */
     private array $legacyTokens = [];
+
+    /** @var array<string, string> helloCash-Token der alten Welt je Shop (hellocash_binding, nur fuer die Pruefung, nie in all()) */
+    private array $legacyHelloCashTokens = [];
 
     public function __construct(private readonly PDO $pdo, private readonly Config $config)
     {
@@ -100,17 +104,21 @@ final class MerchantDirectory
                 'stock_paused' => ($guard['state'] ?? null) === 'paused',
                 'optout' => isset($optouts[$shop]),
                 'token' => $this->tokenState((int) ($s['target_connection_id'] ?? 0), $prepared[$shop] ?? null),
+                'token_note' => null,
+                'token_checked_at' => null,
                 'scopes_checked_at' => $shopify['checked_at'] ?? null,
                 'scopes_error' => null,
             ];
             unset($legacy[$shop]);
         }
 
+        $helloCashChecks = $this->legacyHelloCashChecks();
         foreach ($legacy as $shop => $row) {
             $shop = (string) $shop; // PHP macht aus rein numerischen Array-Schluesseln (Shop "12345") ein int
             // Live-Pruefung (Umstieg -> "Berechtigungen jetzt pruefen") vor dem Stand in oview_stores
             $live = $liveChecks[$shop] ?? null;
             $granted = $live !== null && $live['granted'] !== null ? $live['granted'] : $row['granted'];
+            [$token, $tokenNote, $tokenCheckedAt] = $this->legacyTokenState($shop, $prepared[$shop] ?? null, $helloCashChecks[$shop] ?? null);
             $merchants[] = [
                 'shop' => $shop,
                 'world' => 'legacy',
@@ -126,7 +134,9 @@ final class MerchantDirectory
                 'installed' => $row['installed'],
                 'stock_paused' => false,
                 'optout' => isset($optouts[$shop]),
-                'token' => $this->tokenState(0, $prepared[$shop] ?? null),
+                'token' => $token,
+                'token_note' => $tokenNote,
+                'token_checked_at' => $tokenCheckedAt,
                 'scopes_checked_at' => $live['checked_at'] ?? null,
                 'scopes_error' => $live['error'] ?? null,
             ];
@@ -259,7 +269,111 @@ final class MerchantDirectory
             ];
         }
 
+        // helloCash-Token je Shop (fuer die v2-Pruefung, Migration 0094) -- eigener Versuch, damit
+        // die Liste auch ohne Leserecht auf hellocash_binding erscheint
+        try {
+            foreach ($legacyPdo->query('SELECT shop, token FROM hellocash_binding')->fetchAll() as $row) {
+                $bindingShop = (string) $row['shop'];
+                $bindingShop = str_contains($bindingShop, '.') ? substr($bindingShop, 0, (int) strpos($bindingShop, '.')) : $bindingShop;
+                $token = trim((string) ($row['token'] ?? ''));
+                if ($bindingShop !== '' && $token !== '') {
+                    $this->legacyHelloCashTokens[$bindingShop] = $token;
+                }
+            }
+        } catch (\Throwable) {
+            $this->legacyHelloCashTokens = [];
+        }
+
         return $stores;
+    }
+
+    /**
+     * helloCash-Token eines Shops der alten Welt gegen die API v2 pruefen (nur lesend, siehe
+     * TargetAccessCheck::quickCheckToken) und in connect_legacy_hellocash_checks merken
+     * (Migration 0094). Vorher all() aufrufen.
+     *
+     * @return string|null Fehler (nicht pruefbar), null = geprueft
+     */
+    public function checkLegacyHelloCash(string $shop, \Connect\Setup\TargetAccessCheck $check): ?string
+    {
+        $token = $this->legacyHelloCashTokens[$shop] ?? null;
+        if ($token === null) {
+            $result = ['ok' => null, 'missing' => [], 'error' => 'kein helloCash-Token in der alten Welt'];
+        } else {
+            $result = $check->quickCheckToken($shop, $token);
+        }
+        $this->pdo->prepare(
+            'INSERT INTO connect_legacy_hellocash_checks (shop, token_hash, access_ok, missing, error, checked_at)
+             VALUES (:shop, :hash, :ok, :missing, :error, CURRENT_TIMESTAMP)
+             ON DUPLICATE KEY UPDATE token_hash = VALUES(token_hash), access_ok = VALUES(access_ok), missing = VALUES(missing),
+                                     error = VALUES(error), checked_at = CURRENT_TIMESTAMP'
+        )->execute([
+            'shop' => $shop,
+            'hash' => $token !== null ? hash('sha256', $token) : null,
+            'ok' => $result['ok'] === null ? null : ($result['ok'] ? 1 : 0),
+            'missing' => json_encode($result['missing'], JSON_UNESCAPED_UNICODE),
+            'error' => $result['error'] !== null ? mb_substr($result['error'], 0, 250) : null,
+        ]);
+
+        return $result['ok'] === null ? (string) $result['error'] : null;
+    }
+
+    /**
+     * Token-Status eines Shops der alten Welt: vorab hinterlegter Token (prepare.php) zuerst, sonst
+     * die v2-Pruefung seines bestehenden Tokens -- gilt nur, solange der Token in der alten Welt
+     * derselbe ist wie bei der Pruefung.
+     *
+     * @param array{token_hash: ?string, access_ok: ?bool, missing: list<string>, error: ?string, checked_at: string}|null $check
+     * @return array{0: string, 1: ?string, 2: ?string} [ok|missing|unknown, Hinweis, geprueft am]
+     */
+    private function legacyTokenState(string $shop, ?bool $prepared, ?array $check): array
+    {
+        if ($prepared === true) {
+            return ['ok', 'neu generiert und hinterlegt', null];
+        }
+        $current = $this->legacyHelloCashTokens[$shop] ?? null;
+        if ($check === null) {
+            return [$this->tokenState(0, $prepared), null, null];
+        }
+        if ($current === null) {
+            return [$this->tokenState(0, $prepared), 'kein helloCash-Token in der alten Welt', $check['checked_at']];
+        }
+        if ($check['token_hash'] !== hash('sha256', $current)) {
+            // Token seit der Pruefung geaendert -- altes Ergebnis zaehlt nicht
+            return [$this->tokenState(0, $prepared), 'Token seit der Prüfung geändert – bitte neu prüfen', null];
+        }
+        if ($check['access_ok'] === true) {
+            return ['ok', 'bestehender Token hat schon vollen v2-Zugriff', $check['checked_at']];
+        }
+        if ($check['access_ok'] === false) {
+            $note = $check['error'] ?? ('alter Token' . ($check['missing'] !== [] ? ', fehlt z. B.: ' . implode(', ', $check['missing']) : ''));
+
+            return ['missing', $note, $check['checked_at']];
+        }
+
+        return [$this->tokenState(0, $prepared), 'nicht prüfbar: ' . (string) $check['error'], $check['checked_at']];
+    }
+
+    /** @return array<string, array{token_hash: ?string, access_ok: ?bool, missing: list<string>, error: ?string, checked_at: string}> */
+    private function legacyHelloCashChecks(): array
+    {
+        try {
+            $out = [];
+            foreach ($this->pdo->query('SELECT shop, token_hash, access_ok, missing, error, checked_at FROM connect_legacy_hellocash_checks')->fetchAll() as $row) {
+                $missing = json_decode((string) ($row['missing'] ?? ''), true);
+                $out[(string) $row['shop']] = [
+                    'token_hash' => $row['token_hash'] !== null ? (string) $row['token_hash'] : null,
+                    'access_ok' => $row['access_ok'] === null ? null : (int) $row['access_ok'] === 1,
+                    'missing' => is_array($missing) ? array_values(array_map('strval', $missing)) : [],
+                    'error' => $row['error'] !== null ? (string) $row['error'] : null,
+                    'checked_at' => (string) $row['checked_at'],
+                ];
+            }
+
+            return $out;
+        } catch (\PDOException) {
+            return []; // Migration 0094 fehlt
+        }
     }
 
     /**

@@ -241,6 +241,17 @@ try {
     fwrite(STDERR, 'Bereinigung fehlgeschlagen: ' . $e->getMessage() . "\n");
 }
 
+// Shopify-Tokens (Connect\Shopify\TokenHealth): einmal taeglich ab 7 Uhr, Mail an den Admin nur
+// bei fehlgeschlagener Erneuerung oder bald ablaufendem Refresh-Token.
+try {
+    $tokenHealth = (new \Connect\Shopify\TokenHealth($pdo, $config))->maybeRunDaily($host);
+    if ($tokenHealth !== null) {
+        fwrite(STDOUT, 'Token-Kontrolle: ' . json_encode($tokenHealth) . "\n");
+    }
+} catch (\Throwable $e) {
+    fwrite(STDERR, 'Token-Kontrolle fehlgeschlagen: ' . $e->getMessage() . "\n");
+}
+
 // Nachrichten an Merchants (Connect\Notify\MessageService, admin/messages.php): je Aufruf
 // hoechstens 20 Mails, genau ein Scheduler sendet (GET_LOCK).
 try {

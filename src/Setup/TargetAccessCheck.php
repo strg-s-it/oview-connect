@@ -134,6 +134,51 @@ final class TargetAccessCheck
     }
 
     /**
+     * Schnellpruefung eines helloCash-Tokens ohne Connection (Umstieg-Uebersicht, Token der alten
+     * Welt): hat er schon vollen v2-Zugriff? Alte v1-Tokens scheitern mit "Insufficient scope"
+     * (HTTP 403) -- die Pruefung hoert beim ersten fehlenden Object auf, ein alter Token kostet
+     * also meist nur ein, zwei Aufrufe. Nur lesend.
+     *
+     * @return array{ok: ?bool, missing: list<string>, error: ?string}
+     *         ok = true vollstaendig, false unvollstaendig/ungueltig, null nicht pruefbar
+     */
+    public function quickCheckToken(string $shop, string $token): array
+    {
+        $typeId = self::helloCashTypeId($this->pdo);
+        if ($typeId === null) {
+            return ['ok' => null, 'missing' => [], 'error' => 'helloCash ist in Connect nicht eingerichtet.'];
+        }
+        try {
+            [$credentials] = self::buildCredentials($this->pdo, $this->crypto, $typeId, $shop, $token);
+            $connector = $this->factory->forCredentials($typeId, $credentials);
+        } catch (\Throwable $e) {
+            return ['ok' => null, 'missing' => [], 'error' => mb_substr($e->getMessage(), 0, 250)];
+        }
+        $objects = $connector instanceof GenericHttpConnector ? $connector->checkReadAccess(true, self::OPTIONAL_OBJECTS) : [];
+        if ($objects === []) {
+            return ['ok' => null, 'missing' => [], 'error' => 'Keine lesbaren Objects definiert.'];
+        }
+
+        foreach ($objects as $object) {
+            if ($object['ok']) {
+                continue;
+            }
+            if ($object['status'] === 401) {
+                return ['ok' => false, 'missing' => [], 'error' => 'Token ungültig oder abgelaufen (HTTP 401).'];
+            }
+            // Keine Aussage ueber Berechtigungen: Netzwerk, Limit, Stoerung bei helloCash
+            if ($object['status'] === null || $object['status'] === 429 || $object['status'] >= 500) {
+                return ['ok' => null, 'missing' => [], 'error' => $object['status'] === null
+                    ? mb_substr((string) $object['error'], 0, 250)
+                    : "helloCash antwortet mit HTTP {$object['status']}."];
+            }
+        }
+        $summary = self::summarize($objects, null);
+
+        return ['ok' => $summary['ok'], 'missing' => $summary['missing'], 'error' => null];
+    }
+
+    /**
      * Bestehende Connection pruefen und das Ergebnis in config.target_access ablegen.
      *
      * @return array{ok: bool, missing: list<string>, optional_missing: list<string>, objects: array<string, array{label: string, ok: bool, status: ?int, error: ?string}>, error: ?string}

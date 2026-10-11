@@ -65,7 +65,7 @@ final class ScopeCheck
         }
 
         try {
-            $credentials = $this->crypto->decryptArray((string) $connection['credentials']);
+            $credentials = TokenRefresher::fromConfig($this->config)->freshCredentials($this->pdo, $this->crypto, (int) $connection['id']);
             $domain = (string) parse_url((string) ($credentials['base_url'] ?? ''), PHP_URL_HOST);
             $token = (string) ($credentials['header_value'] ?? '');
             if ($domain === '' || $token === '') {
