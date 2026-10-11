@@ -85,7 +85,7 @@ final class InvoiceService
     public const CUSTOMER_MATCH_EMAIL_NAME = 'email_name';
     public const CUSTOMER_MATCH_EMAIL = 'email';
     public const CUSTOMER_MATCH_LABELS = [
-        self::CUSTOMER_MATCH_EMAIL_NAME => 'E-Mail-Adresse, sonst Vor- und Nachname',
+        self::CUSTOMER_MATCH_EMAIL_NAME => 'E-Mail-Adresse, sonst Name und Adresse',
         self::CUSTOMER_MATCH_EMAIL => 'Nur E-Mail-Adresse',
     ];
 
@@ -556,7 +556,7 @@ final class InvoiceService
     }
 
     /**
-     * Sucht zuerst per E-Mail, dann per Vor-+Nachname nach einem bestehenden Kunden
+     * Sucht zuerst per E-Mail, dann per Vor-+Nachname und Adresse (addressMatches()) nach einem bestehenden Kunden
      * (GET /customers?search=..., live -- bewusst nicht gecacht, siehe Klassenkommentar:
      * die Suche muss den aktuellen Stand sehen, nicht einen evtl. veralteten Cache).
      * Kein Treffer -> neuer Kunde, aber nur wenn HelloCash das Land akzeptiert (dort fuer
@@ -591,13 +591,27 @@ final class InvoiceService
         }
 
         if (!$emailOnly && $firstName !== '' && $lastName !== '') {
+            $orderAddress = [
+                'zip' => trim((string) ($orderRow['billing_zip'] ?? $orderRow['shipping_zip'] ?? '')),
+                'city' => trim((string) ($orderRow['billing_city'] ?? $orderRow['shipping_city'] ?? '')),
+                'street' => trim((string) ($orderRow['billing_address1'] ?? $orderRow['shipping_address1'] ?? '')),
+            ];
             foreach ($targetConnector->read('customer', ['search' => rawurlencode($firstName . ' ' . $lastName)]) as $row) {
-                if (isset($row['id'])
-                    && strcasecmp(trim((string) ($row['first_name'] ?? '')), $firstName) === 0
-                    && strcasecmp(trim((string) ($row['last_name'] ?? '')), $lastName) === 0
+                if (!isset($row['id'])
+                    || strcasecmp(trim((string) ($row['first_name'] ?? '')), $firstName) !== 0
+                    || strcasecmp(trim((string) ($row['last_name'] ?? '')), $lastName) !== 0
                 ) {
-                    return (int) $row['id'];
+                    continue;
                 }
+                $address = self::addressMatches($row, ['zip' => 'postal_code', 'city' => 'city', 'street' => 'street'], $orderAddress);
+                if ($address === false) {
+                    continue; // gleicher Name, andere Adresse = anderer Kunde
+                }
+                if ($address === null) {
+                    $notes[] = 'Kunde nur per Name zugeordnet (Adressfelder street/postal_code/city fehlen am Kunden-Object im Connector Builder).';
+                }
+
+                return (int) $row['id'];
             }
         }
 
@@ -632,6 +646,34 @@ final class InvoiceService
         }
 
         return isset($created->responseData['id']) ? (int) $created->responseData['id'] : null;
+    }
+
+    /**
+     * Adressabgleich bei der Kundensuche per Name -- wie die alte Welt (get_hellocash_user_id():
+     * Name UND PLZ, Ort, Strasse, Gross-/Kleinschreibung egal), damit gleichnamige Kunden nicht
+     * verwechselt werden. Verglichen wird nur, was das Suchergebnis als Feld liefert (Felder am
+     * Kunden-Object im Connector Builder).
+     *
+     * @param array<string, mixed> $row Suchergebnis
+     * @param array<string, ?string> $rowKeys Teil (zip|city|street) => Feld im Suchergebnis
+     * @param array<string, string> $orderValues Teil (zip|city|street) => Wert aus der Bestellung
+     * @return bool|null null = Suchergebnis enthaelt keines der Adressfelder (nur Name pruefbar)
+     */
+    public static function addressMatches(array $row, array $rowKeys, array $orderValues): ?bool
+    {
+        $normalize = static fn (mixed $value): string => mb_strtolower(trim((string) $value));
+        $compared = false;
+        foreach ($rowKeys as $part => $rowKey) {
+            if ($rowKey === null || !array_key_exists($rowKey, $row)) {
+                continue;
+            }
+            $compared = true;
+            if ($normalize($row[$rowKey]) !== $normalize($orderValues[$part] ?? '')) {
+                return false;
+            }
+        }
+
+        return $compared ? true : null;
     }
 
     private static function mapCountryCode(string $isoAlpha2): ?string

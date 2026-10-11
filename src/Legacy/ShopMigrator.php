@@ -33,6 +33,9 @@ final class ShopMigrator
     public const STATUS_MANUAL = 'manual';
     public const STATUS_UNSUPPORTED = 'unsupported';
 
+    /** Shops, fuer die die alte Welt Kunden nur per E-Mail zuordnete (inc/functions_hellocash.php, $email_only_shops) */
+    private const LEGACY_EMAIL_ONLY_SHOPS = ['fgnpc9-wa'];
+
     /** @var array<string, mixed>|null */
     private ?array $legacy = null;
 
@@ -400,6 +403,13 @@ final class ShopMigrator
             if ($this->hasSignatureColumn()) {
                 $values['invoice_signature_mandatory'] = ($inv['signature_mandatory'] ?? 'true') === 'true' ? 1 : 0;
             }
+            // Kundenzuordnung (Migration 0095): die alte Welt hatte "nur E-Mail" fest im Code fuer
+            // einzelne Shops (get_hellocash_user_id(), $email_only_shops), sonst Name + Adresse
+            if ($this->hasColumn('invoice_customer_match')) {
+                $values['invoice_customer_match'] = in_array($shop, self::LEGACY_EMAIL_ONLY_SHOPS, true)
+                    ? \Connect\Sync\InvoiceService::CUSTOMER_MATCH_EMAIL
+                    : \Connect\Sync\InvoiceService::CUSTOMER_MATCH_EMAIL_NAME;
+            }
             $values['invoice_error_notification_email'] = trim((string) ($inv['error_notification_email'] ?? '')) !== '' ? (string) $inv['error_notification_email'] : null;
             // Seit Migration 0079 liest Connect die Benachrichtigungs-Adresse aus notify_email
             if ($values['invoice_error_notification_email'] !== null && $this->hasColumn('notify_email')) {
@@ -445,6 +455,7 @@ final class ShopMigrator
             'invoice_pos_only' => ['Rechnung', 'Nur Kassenbestellungen (POS)', $onOff],
             'invoice_suppress_and_adjust_stock' => ['Rechnung', 'Keine Rechnung, nur Lagerbestand', $onOff],
             'invoice_signature_mandatory' => ['Rechnung', 'Signatur erforderlich (RKSV)', $onOff],
+            'invoice_customer_match' => ['Rechnung', 'Kunden zuordnen über', static fn (mixed $v): string => \Connect\Sync\InvoiceService::CUSTOMER_MATCH_LABELS[(string) $v] ?? (string) $v],
             'invoice_error_notification_email' => ['Rechnung', 'Fehler-Benachrichtigung an', $text],
             'invoice_mail_enabled' => ['Rechnung · Mail', 'PDF-Mail an Kunden', $onOff],
             'invoice_mail_sender_name' => ['Rechnung · Mail', 'Absendername', $text],

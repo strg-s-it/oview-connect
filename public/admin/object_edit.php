@@ -100,6 +100,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'updat
             'customer_last_name_field' => (string) ($_POST['customer_last_name_field'] ?? ''),
             'customer_create_template_id' => (int) ($_POST['customer_create_template_id'] ?? 0),
             'customer_created_id_path' => (string) ($_POST['customer_created_id_path'] ?? ''),
+            'customer_zip_field' => (string) ($_POST['customer_zip_field'] ?? ''),
+            'customer_city_field' => (string) ($_POST['customer_city_field'] ?? ''),
+            'customer_street_field' => (string) ($_POST['customer_street_field'] ?? ''),
         ]));
         $profileJson = json_encode($profile->toArray(), JSON_UNESCAPED_SLASHES);
     } else {
@@ -540,6 +543,21 @@ require dirname(__DIR__) . '/app/_header.php';
                     <div class="col-md-4">
                         <label class="form-label">Feld mit dem Nachnamen (Suchergebnis)</label>
                         <input type="text" name="customer_last_name_field" class="form-control font-monospace" placeholder="leer = nicht per Name suchen" value="<?php echo htmlspecialchars((string) $documentProfile->customerLastNameField); ?>">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Feld mit der PLZ (Suchergebnis)</label>
+                        <input type="text" name="customer_zip_field" class="form-control font-monospace" placeholder="z. B. postal_code" value="<?php echo htmlspecialchars((string) $documentProfile->customerZipField); ?>">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Feld mit dem Ort (Suchergebnis)</label>
+                        <input type="text" name="customer_city_field" class="form-control font-monospace" placeholder="z. B. city" value="<?php echo htmlspecialchars((string) $documentProfile->customerCityField); ?>">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Feld mit der Straße (Suchergebnis)</label>
+                        <input type="text" name="customer_street_field" class="form-control font-monospace" placeholder="z. B. street" value="<?php echo htmlspecialchars((string) $documentProfile->customerStreetField); ?>">
+                    </div>
+                    <div class="col-12">
+                        <small class="text-secondary">Bei der Suche per Name müssen die eingetragenen Adressfelder zusätzlich passen (wie in der alten Welt) – gleichnamige Kunden werden so nicht verwechselt. Die Felder müssen am Kunden-Object angelegt sein. Leer = nur per Name.</small>
                     </div>
                     <div class="col-md-8">
                         <label class="form-label">Vorlage für die Neuanlage</label>

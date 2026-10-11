@@ -1775,7 +1775,7 @@ require __DIR__ . '/_header.php';
                                         <option value="<?php echo htmlspecialchars($matchKey); ?>" <?php echo $shopSettings['invoice_customer_match'] === $matchKey ? 'selected' : ''; ?>><?php echo htmlspecialchars($matchLabel); ?></option>
                                     <?php endforeach; ?>
                                 </select>
-                                <small class="text-secondary">So sucht oView den Kunden in <?php echo htmlspecialchars($targetName); ?>. Nicht gefunden = neuer Kunde. Bei „Nur E-Mail-Adresse“ werden gleichnamige Kunden nie verwechselt – Bestellungen ohne E-Mail-Adresse bekommen dann keinen Kunden.</small>
+                                <small class="text-secondary">So sucht oView den Kunden in <?php echo htmlspecialchars($targetName); ?>. Nicht gefunden = neuer Kunde. Bei „Name und Adresse“ müssen Name, PLZ, Ort und Straße übereinstimmen. Bei „Nur E-Mail-Adresse“ bekommen Bestellungen ohne E-Mail-Adresse keinen Kunden.</small>
                             </div>
                         <?php endif; ?>
 

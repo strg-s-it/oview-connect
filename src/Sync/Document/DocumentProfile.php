@@ -46,6 +46,11 @@ final class DocumentProfile
         public readonly ?int $customerCreateTemplateId = null,
         /** Kunden-Vorschritt: Pfad zur ID des neu angelegten Kunden in der Antwort. */
         public readonly string $customerCreatedIdPath = 'id',
+        /** Kunden-Vorschritt: Adressfelder im Suchergebnis -- bei der Suche per Name muessen sie
+         *  zusaetzlich passen (wie alte Welt). Alle null = nur per Name. */
+        public readonly ?string $customerZipField = null,
+        public readonly ?string $customerCityField = null,
+        public readonly ?string $customerStreetField = null,
     ) {
     }
 
@@ -80,6 +85,9 @@ final class DocumentProfile
             $text('customer_last_name_field'),
             isset($data['customer_create_template_id']) && (int) $data['customer_create_template_id'] > 0 ? (int) $data['customer_create_template_id'] : null,
             $text('customer_created_id_path') ?? 'id',
+            $text('customer_zip_field'),
+            $text('customer_city_field'),
+            $text('customer_street_field'),
         );
     }
 
@@ -116,6 +124,9 @@ final class DocumentProfile
             'customer_last_name_field' => $this->customerLastNameField,
             'customer_create_template_id' => $this->customerCreateTemplateId,
             'customer_created_id_path' => $this->customerCreatedIdPath,
+            'customer_zip_field' => $this->customerZipField,
+            'customer_city_field' => $this->customerCityField,
+            'customer_street_field' => $this->customerStreetField,
         ];
     }
 

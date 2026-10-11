@@ -1,9 +1,9 @@
 -- =============================================================================
 -- 0095 Kundenzuordnung bei Rechnungen einstellbar
 --
--- Bisher immer: Kunde per E-Mail suchen, sonst per Vor- und Nachname, sonst neu anlegen.
--- Merchant-Wunsch: nur per E-Mail-Adresse (gleichnamige Kunden wurden sonst verwechselt).
---   email_name  E-Mail, sonst Vor- und Nachname (bisheriges Verhalten, Standard)
+-- Bisher immer: Kunde per E-Mail suchen, sonst per Name und Adresse, sonst neu anlegen.
+-- Merchant-Wunsch: nur per E-Mail-Adresse (wie in der alten Welt fest fuer fgnpc9-wa).
+--   email_name  E-Mail, sonst Vor-/Nachname + PLZ/Ort/Strasse (Standard)
 --   email       nur E-Mail -- nicht gefunden = neuer Kunde, Bestellung ohne E-Mail = kein Kunde
 -- Gilt fuer beide Wege der Rechnungserstellung (DocumentPipeline und InvoiceService).
 --

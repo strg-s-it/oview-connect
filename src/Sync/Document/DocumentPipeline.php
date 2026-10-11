@@ -369,13 +369,28 @@ final class DocumentPipeline
         }
 
         if (!$emailOnly && $firstName !== '' && $lastName !== '' && $profile->customerFirstNameField !== null && $profile->customerLastNameField !== null) {
+            $addressKeys = ['zip' => $profile->customerZipField, 'city' => $profile->customerCityField, 'street' => $profile->customerStreetField];
+            $orderAddress = [
+                'zip' => (string) ($record['zip'] ?? ''),
+                'city' => (string) ($record['city'] ?? ''),
+                'street' => (string) ($record['address1'] ?? ''),
+            ];
             foreach ($targetConnector->read($objectKey, [$profile->customerSearchParam => rawurlencode($firstName . ' ' . $lastName)]) as $row) {
-                if (isset($row[$idField])
-                    && strcasecmp(trim((string) ($row[$profile->customerFirstNameField] ?? '')), $firstName) === 0
-                    && strcasecmp(trim((string) ($row[$profile->customerLastNameField] ?? '')), $lastName) === 0
+                if (!isset($row[$idField])
+                    || strcasecmp(trim((string) ($row[$profile->customerFirstNameField] ?? '')), $firstName) !== 0
+                    || strcasecmp(trim((string) ($row[$profile->customerLastNameField] ?? '')), $lastName) !== 0
                 ) {
-                    return $normalizeId($row[$idField]);
+                    continue;
                 }
+                $address = InvoiceService::addressMatches($row, $addressKeys, $orderAddress);
+                if ($address === false) {
+                    continue; // gleicher Name, andere Adresse = anderer Kunde
+                }
+                if ($address === null) {
+                    $notes[] = 'Kunde nur per Name zugeordnet (keine Adressfelder im Belegprofil bzw. im Suchergebnis).';
+                }
+
+                return $normalizeId($row[$idField]);
             }
         }
 
