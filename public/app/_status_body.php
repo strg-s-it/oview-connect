@@ -34,11 +34,7 @@ $flashType = 'info';
 // POST: alle Verbindungen testen
 // -----------------------------------------------------------------------
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'test_all') {
-    $factory = new ConnectorFactory($pdo, $app->crypto, new HttpClient(), new TokenRefresher(
-        new HttpClient(),
-        $app->config->optional('CONNECT_SHOPIFY_API_KEY'),
-        $app->config->optional('CONNECT_SHOPIFY_API_SECRET')
-    ));
+    $factory = new ConnectorFactory($pdo, $app->crypto, new HttpClient(), TokenRefresher::fromConfig($app->config));
     $failed = [];
     $idsStmt = $pdo->prepare('SELECT c.id, t.name FROM connect_connections c JOIN connect_connector_types t ON t.id = c.connector_type_id WHERE c.shop = :shop');
     $idsStmt->execute(['shop' => $shop]);

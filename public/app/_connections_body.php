@@ -140,11 +140,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'test_
         $flashMessage = 'Connection nicht gefunden.';
         $flashType = 'danger';
     } else {
-        $tokenRefresher = new TokenRefresher(
-            new HttpClient(),
-            $app->config->optional('CONNECT_SHOPIFY_API_KEY'),
-            $app->config->optional('CONNECT_SHOPIFY_API_SECRET')
-        );
+        $tokenRefresher = TokenRefresher::fromConfig($app->config);
         $factory = new ConnectorFactory($pdo, $app->crypto, new HttpClient(), $tokenRefresher);
 
         $previousStatus = \Connect\Sync\JobScheduler::connectionStatus($pdo, $connectionId);

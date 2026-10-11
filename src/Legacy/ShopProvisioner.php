@@ -82,11 +82,7 @@ final class ShopProvisioner
              ON DUPLICATE KEY UPDATE last_seen_at = CURRENT_TIMESTAMP'
         )->execute(['shop' => $shop]);
 
-        $factory = new ConnectorFactory($this->pdo, $crypto, new HttpClient(), new TokenRefresher(
-            new HttpClient(),
-            $this->config->optional('CONNECT_SHOPIFY_API_KEY'),
-            $this->config->optional('CONNECT_SHOPIFY_API_SECRET')
-        ));
+        $factory = new ConnectorFactory($this->pdo, $crypto, new HttpClient(), TokenRefresher::fromConfig($this->config));
 
         // Verbindung testen, damit der Shop gleich als bereit gilt
         try {

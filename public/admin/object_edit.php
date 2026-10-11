@@ -256,11 +256,7 @@ $introspectError = null;
 // (introspectType) genutzt -- beide brauchen einen fertig aufgebauten
 // GenericHttpConnector fuer eine gewaehlte Connection.
 $buildGenericConnector = function (int $connectionId) use ($pdo, $config): \Connect\Connector\Generic\GenericHttpConnector {
-    $tokenRefresher = new TokenRefresher(
-        new HttpClient(),
-        $config->optional('CONNECT_SHOPIFY_API_KEY'),
-        $config->optional('CONNECT_SHOPIFY_API_SECRET')
-    );
+    $tokenRefresher = TokenRefresher::fromConfig($config);
     $factory = new ConnectorFactory($pdo, new Crypto($config->require('CONNECT_ENCRYPTION_KEY')), new HttpClient(), $tokenRefresher);
     $connector = $factory->forConnection($connectionId);
 

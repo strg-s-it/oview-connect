@@ -191,11 +191,6 @@ final class AdminAuth
         return is_string($email) ? $email : null;
     }
 
-    public function isLoggedIn(): bool
-    {
-        return $this->currentEmail() !== null;
-    }
-
     /**
      * Erzwingt ein Login -- leitet bei fehlender Session nach login.php um
      * und beendet die Ausfuehrung. Nimmt den aktuellen Request-Pfad relativ

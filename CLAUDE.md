@@ -50,7 +50,8 @@ bin/scheduler.php      Hintergrund-Jobs (CLI, atomarer Claim, 1 Job je Aufruf, m
 
 - `src/Connector/` – `ConnectorFactory` baut aus einer `connect_connections`-Zeile einen
   `GenericHttpConnector` (einzige Implementierung von `ConnectorInterface`; REST/GraphQL/XML,
-  Pagination, Rate-Limit, Detail-Nachladen). Erneuert Shopify-Tokens über `Shopify\TokenRefresher`.
+  Pagination, Rate-Limit, Detail-Nachladen). Erneuert Shopify-Tokens über `Shopify\TokenRefresher`
+  – immer als `new ConnectorFactory($pdo, $crypto, new HttpClient(), TokenRefresher::fromConfig($config))`.
 - **Begriffe (Connector Builder):** Connector Type (Shopify/helloCash/MGM) → Objects → Fields →
   Operations. Pro Shop eine Connection (Zugangsdaten verschlüsselt, `Security\Crypto`).
   **Mapping-Vorlage** = globales Feld-Mapping für ein Objektpaar; pro Shop nur eine **Aktivierung**
@@ -121,8 +122,8 @@ bin/scheduler.php      Hintergrund-Jobs (CLI, atomarer Claim, 1 Job je Aufruf, m
   oder gemeinsame Token-Quelle beider Welten. Erneuern braucht eine Sperre pro Shop.
 - Verschlüsselung: getrennter Schlüssel für Link-Signaturen (`MessageService`) statt
   `CONNECT_ENCRYPTION_KEY`, AES-GCM statt CBC (braucht Neu-Verschlüsselung aller Credentials).
-- Aufräumen: `Billing\PartnerSubscriptions` (ungenutzt), `PrivacyService::purgeExpired()` (ersetzt
-  durch `Maintenance\Retention`), `.env.example` unvollständig, `new TokenRefresher(...)` 21× kopiert.
+- Typ-Kommentare teils ungenau (z. B. Rückgabe von `ProductComparisonService::compare()` ohne
+  `buffer`/`flags`/`problems`) – steht in der PHPStan-Baseline, nach und nach korrigieren.
 - Viele Funktionen sind laut `HANDOFF.md` „nicht live getestet“.
 
 ## Weitere Doku

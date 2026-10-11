@@ -41,11 +41,7 @@ $shopifyItems = [];   // Vergleichswert => [label, qty]
 $targetItems = [];    // Vergleichswert => [label, qty]
 $contextError = null;
 try {
-    $factory = new ConnectorFactory($pdo, $app->crypto, new HttpClient(), new TokenRefresher(
-        new HttpClient(),
-        $app->config->optional('CONNECT_SHOPIFY_API_KEY'),
-        $app->config->optional('CONNECT_SHOPIFY_API_SECRET')
-    ));
+    $factory = new ConnectorFactory($pdo, $app->crypto, new HttpClient(), TokenRefresher::fromConfig($app->config));
     $context = ProductMatchContext::resolve($pdo, $factory, $shop);
     $cache = new ObjectCache($pdo);
     foreach ([[$context->shopifyConnectionId, $context->shopifyObject, $context->shopifyMatchField->key, $context->shopifyStockField->key, &$shopifyItems],

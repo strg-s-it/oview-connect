@@ -34,11 +34,7 @@ $q = '?shop=' . urlencode($shop) . $previewSuffix;
 $e = static fn (?string $s): string => htmlspecialchars((string) $s, ENT_QUOTES);
 $money = static fn (?float $v): string => $v === null ? '–' : number_format($v, 2, ',', '.');
 
-$factory = new ConnectorFactory($pdo, $app->crypto, new HttpClient(), new TokenRefresher(
-    new HttpClient(),
-    $app->config->optional('CONNECT_SHOPIFY_API_KEY'),
-    $app->config->optional('CONNECT_SHOPIFY_API_SECRET')
-));
+$factory = new ConnectorFactory($pdo, $app->crypto, new HttpClient(), TokenRefresher::fromConfig($app->config));
 $batchService = new BatchEditService($pdo, $factory);
 $syncRunner = new PriceSyncRunner($pdo, $factory);
 

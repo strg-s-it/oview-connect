@@ -31,11 +31,7 @@ $history = null;
 $error = null;
 if ($matchValue !== '') {
     try {
-        $factory = new ConnectorFactory($pdo, $app->crypto, new HttpClient(), new TokenRefresher(
-            new HttpClient(),
-            $app->config->optional('CONNECT_SHOPIFY_API_KEY'),
-            $app->config->optional('CONNECT_SHOPIFY_API_SECRET')
-        ));
+        $factory = new ConnectorFactory($pdo, $app->crypto, new HttpClient(), TokenRefresher::fromConfig($app->config));
         $history = (new StockHistory($pdo, $factory))->build($shop, $matchValue);
     } catch (\Throwable $ex) {
         $error = $ex->getMessage();

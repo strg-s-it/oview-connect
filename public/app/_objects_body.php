@@ -61,11 +61,7 @@ $lastRefreshedAt = null;
  * als kleine lokale Hilfsfunktion statt Code-Duplizierung.
  */
 $buildConnector = function () use ($pdo, $app, $selectedConnectionId): \Connect\Connector\ConnectorInterface {
-    $tokenRefresher = new TokenRefresher(
-        new HttpClient(),
-        $app->config->optional('CONNECT_SHOPIFY_API_KEY'),
-        $app->config->optional('CONNECT_SHOPIFY_API_SECRET')
-    );
+    $tokenRefresher = TokenRefresher::fromConfig($app->config);
     $factory = new ConnectorFactory($pdo, $app->crypto, new HttpClient(), $tokenRefresher);
 
     return $factory->forConnection($selectedConnectionId);

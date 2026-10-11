@@ -31,11 +31,7 @@ $isAdmin = $isAdmin ?? false;
 $pdo = $app->pdo;
 $shop = $app->shop;
 
-$tokenRefresher = new TokenRefresher(
-    new HttpClient(),
-    $app->config->optional('CONNECT_SHOPIFY_API_KEY'),
-    $app->config->optional('CONNECT_SHOPIFY_API_SECRET')
-);
+$tokenRefresher = TokenRefresher::fromConfig($app->config);
 $factory = new ConnectorFactory($pdo, $app->crypto, new HttpClient(), $tokenRefresher);
 $importService = new ProductImportService($pdo, $factory);
 

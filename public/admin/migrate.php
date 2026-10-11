@@ -37,11 +37,7 @@ $flashMessage = null;
 $flashType = 'info';
 
 $migrator = new ShopMigrator($pdo, $app->config, $app->crypto);
-$factory = new ConnectorFactory($pdo, $app->crypto, new HttpClient(), new TokenRefresher(
-    new HttpClient(),
-    $app->config->optional('CONNECT_SHOPIFY_API_KEY'),
-    $app->config->optional('CONNECT_SHOPIFY_API_SECRET')
-));
+$factory = new ConnectorFactory($pdo, $app->crypto, new HttpClient(), TokenRefresher::fromConfig($app->config));
 $liveSwitch = new LiveSwitch($pdo, $app->crypto, new HttpClient(), $app->config->require('CONNECT_APP_URL'), $app->config->optional('CONNECT_SHOPIFY_API_VERSION', '2026-07'));
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {

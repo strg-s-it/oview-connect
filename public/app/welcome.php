@@ -82,7 +82,7 @@ $nextStepAfter = static function (string $step) use ($wizard, $shop): string {
     return $index !== false && isset($visible[$index + 1]) ? $visible[$index + 1] : $wizard->firstOpenStep($shop);
 };
 $buildFactory = static function () use ($pdo, $app): ConnectorFactory {
-    $tokenRefresher = new TokenRefresher(new HttpClient(), $app->config->optional('CONNECT_SHOPIFY_API_KEY'), $app->config->optional('CONNECT_SHOPIFY_API_SECRET'));
+    $tokenRefresher = TokenRefresher::fromConfig($app->config);
 
     return new ConnectorFactory($pdo, $app->crypto, new HttpClient(), $tokenRefresher);
 };

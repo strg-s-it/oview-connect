@@ -267,11 +267,7 @@ if (strtolower($config->optional('CONNECT_WEEKLY_REPORT', 'on')) !== 'off') {
 }
 
 $crypto = new Crypto($config->require('CONNECT_ENCRYPTION_KEY'));
-$tokenRefresher = new TokenRefresher(
-    new HttpClient(),
-    $config->optional('CONNECT_SHOPIFY_API_KEY'),
-    $config->optional('CONNECT_SHOPIFY_API_SECRET')
-);
+$tokenRefresher = TokenRefresher::fromConfig($config);
 $factory = new ConnectorFactory($pdo, $crypto, new HttpClient(), $tokenRefresher);
 $runner = new SyncRunner($pdo, $factory);
 

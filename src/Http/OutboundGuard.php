@@ -33,11 +33,6 @@ final class OutboundGuard
         self::$active = strtolower(trim($mode)) !== 'off';
     }
 
-    public static function isActive(): bool
-    {
-        return self::$active;
-    }
-
     /**
      * Prueft eine Ziel-URL. Liefert die CURLOPT_RESOLVE-Eintraege, mit denen der Aufruf an die
      * geprueften Adressen gebunden wird (leer bei einer IP-Adresse als Host oder abgeschaltetem Waechter).

@@ -48,7 +48,7 @@ $shopifyConnectionId = $stmt->fetchColumn();
 $shopifyConnectionId = $shopifyConnectionId !== false ? (int) $shopifyConnectionId : null;
 
 $buildConnector = function () use ($pdo, $app, $shopifyConnectionId): GenericHttpConnector {
-    $tokenRefresher = new TokenRefresher(new HttpClient(), $app->config->optional('CONNECT_SHOPIFY_API_KEY'), $app->config->optional('CONNECT_SHOPIFY_API_SECRET'));
+    $tokenRefresher = TokenRefresher::fromConfig($app->config);
     $connector = (new ConnectorFactory($pdo, $app->crypto, new HttpClient(), $tokenRefresher))->forConnection((int) $shopifyConnectionId);
     if (!$connector instanceof GenericHttpConnector) {
         throw new \RuntimeException('Shopify-Connection unterstützt keine freie Abfrage.');

@@ -188,66 +188,7 @@ final class PrivacyService
         return $result;
     }
 
-    // ------------------------------------------------------------------
-    // Regelmaessige Bereinigung (Aufbewahrungsfristen)
-    // ------------------------------------------------------------------
-
-    /**
-     * Loescht bzw. leert alles, was ueber die Aufbewahrungsfrist hinaus liegt.
-     *
-     * @return array<string, int>
-     */
-    public function purgeExpired(
-        int $webhookDays = 30,
-        int $activityBodyDays = 90,
-        int $orderCacheDays = 90,
-        int $privacyRequestDays = 30
-    ): array {
-        $webhookDays = max(1, $webhookDays);
-        $activityBodyDays = max(1, $activityBodyDays);
-        $orderCacheDays = max(1, $orderCacheDays);
-        $privacyRequestDays = max(1, $privacyRequestDays);
-
-        $counts = [];
-
-        $counts['webhook_events'] = $this->deleteCount(
-            'DELETE FROM connect_webhook_events WHERE received_at < NOW() - INTERVAL ' . $webhookDays . ' DAY',
-            []
-        );
-
-        // Nur die rohen Bodies leeren, das Protokoll selbst (Meldung, Status) bleibt.
-        $counts['activity_log_bodies'] = $this->deleteCount(
-            'UPDATE connect_activity_log SET request_body = NULL, response_body = NULL
-             WHERE created_at < NOW() - INTERVAL ' . $activityBodyDays . ' DAY
-               AND (request_body IS NOT NULL OR response_body IS NOT NULL)',
-            []
-        );
-
-        // Bestellungen im Cache: als "orphaned" markierte (nicht mehr im Zeitfenster bzw.
-        // in Shopify geloescht) nach kurzer Schonfrist entfernen, alles andere nach der
-        // Aufbewahrungsfrist -- Letzteres faengt einen stehengebliebenen Abgleich ab.
-        $counts['order_cache'] = $this->deleteCount(
-            "DELETE FROM connect_object_records
-             WHERE object_key = :object_key
-               AND ((status = 'orphaned' AND fetched_at < NOW() - INTERVAL 7 DAY)
-                    OR fetched_at < NOW() - INTERVAL " . $orderCacheDays . ' DAY)',
-            ['object_key' => self::ORDER_OBJECT_KEY]
-        );
-
-        $counts['privacy_requests'] = $this->deleteCount(
-            'DELETE FROM connect_privacy_requests WHERE received_at < NOW() - INTERVAL ' . $privacyRequestDays . ' DAY',
-            []
-        );
-
-        // Protokoll der Admin-Login-Versuche (Migration 0052): fuer die Sperre reichen 15 Minuten,
-        // 30 Tage genuegen fuer eine Nachschau. Fehlt die Tabelle noch, zaehlt das als 0.
-        $counts['admin_login_attempts'] = $this->deleteCount(
-            'DELETE FROM connect_admin_login_attempts WHERE attempted_at < NOW() - INTERVAL 30 DAY',
-            []
-        );
-
-        return $counts;
-    }
+    // Regelmaessige Bereinigung (Aufbewahrungsfristen): siehe Connect\Maintenance\Retention
 
     // ------------------------------------------------------------------
     // Interna: Treffer suchen

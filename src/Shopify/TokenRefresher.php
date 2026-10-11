@@ -33,6 +33,16 @@ final class TokenRefresher
     ) {
     }
 
+    /** Standard-Aufbau mit den Shopify-App-Zugangsdaten aus connect/.env. */
+    public static function fromConfig(\Connect\Config $config): self
+    {
+        return new self(
+            new HttpClient(),
+            $config->optional('CONNECT_SHOPIFY_API_KEY'),
+            $config->optional('CONNECT_SHOPIFY_API_SECRET')
+        );
+    }
+
     /**
      * Prueft Ablauf und erneuert bei Bedarf; persistiert eine Erneuerung
      * sofort in der DB. Bei Credentials ohne refresh_token/expires_at

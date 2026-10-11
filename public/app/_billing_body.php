@@ -23,11 +23,7 @@ $pdo = $app->pdo;
 $shop = $app->shop;
 $canChange = !$isAdmin && !isset($_GET['preview']) && $app->host !== '';
 
-$billing = new BillingService($pdo, new ConnectorFactory($pdo, $app->crypto, new HttpClient(), new TokenRefresher(
-    new HttpClient(),
-    $app->config->optional('CONNECT_SHOPIFY_API_KEY'),
-    $app->config->optional('CONNECT_SHOPIFY_API_SECRET')
-)), $app->config);
+$billing = new BillingService($pdo, new ConnectorFactory($pdo, $app->crypto, new HttpClient(), TokenRefresher::fromConfig($app->config)), $app->config);
 
 $flashMessage = null;
 $flashType = 'info';

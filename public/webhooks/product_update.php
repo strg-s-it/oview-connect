@@ -48,11 +48,7 @@ if ($ctx->connectionId !== null) {
 
         $config = Config::load();
         $crypto = new Crypto($config->require('CONNECT_ENCRYPTION_KEY'));
-        $tokenRefresher = new TokenRefresher(
-            new HttpClient(),
-            $config->optional('CONNECT_SHOPIFY_API_KEY'),
-            $config->optional('CONNECT_SHOPIFY_API_SECRET')
-        );
+        $tokenRefresher = TokenRefresher::fromConfig($config);
         $factory = new ConnectorFactory($ctx->pdo, $crypto, new HttpClient(), $tokenRefresher);
         $connector = $factory->forConnection($ctx->connectionId);
 

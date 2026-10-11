@@ -36,11 +36,7 @@ $flashMessage = null;
 $flashType = 'info';
 
 $buildFactory = function () use ($pdo, $app): ConnectorFactory {
-    $tokenRefresher = new TokenRefresher(
-        new HttpClient(),
-        $app->config->optional('CONNECT_SHOPIFY_API_KEY'),
-        $app->config->optional('CONNECT_SHOPIFY_API_SECRET')
-    );
+    $tokenRefresher = TokenRefresher::fromConfig($app->config);
 
     return new ConnectorFactory($pdo, $app->crypto, new HttpClient(), $tokenRefresher);
 };
