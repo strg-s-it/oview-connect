@@ -1,0 +1,14 @@
+{
+    "name": "strg-s/oview-connect",
+    "description": "oView Connect: eigenstaendige Connector-/Mapping-Plattform. Getrennt vom Haupt-oView-Projekt, damit dieser Ordner allein auf einen neuen Server kopiert und dort unabhaengig installiert werden kann.",
+    "type": "project",
+    "require": {
+        "php": ">=8.1",
+        "phpmailer/phpmailer": "^6.9"
+    },
+    "autoload": {
+        "psr-4": {
+            "Connect\\": "src/"
+        }
+    }
+}

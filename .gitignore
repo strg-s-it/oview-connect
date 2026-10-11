@@ -1,0 +1,21 @@
+# Zugangsdaten -- nie versionieren (Vorlage: .env.example)
+.env
+.env.*
+!.env.example
+
+# Abhaengigkeiten liegen nur auf dem Server (composer install dort)
+/vendor/
+
+# Editor / lokale Deploy-Konfiguration (enthaelt Zugangsdaten)
+.vscode/
+.idea/
+
+# Laufzeitdaten
+*.log
+/logs/
+/tmp/
+
+# Lokale Werkzeuge
+/.phpstan-cache/
+.DS_Store
+Thumbs.db

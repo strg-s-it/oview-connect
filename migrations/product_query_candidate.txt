@@ -1,0 +1,1 @@
+query { products(first: 50) { edges { node { id title handle vendor productType status variants(first: 1) { edges { node { id sku barcode price inventoryQuantity } } } } } pageInfo { hasNextPage endCursor } } }

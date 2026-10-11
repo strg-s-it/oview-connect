@@ -1,0 +1,10 @@
+# Textdateien im Repo einheitlich mit LF speichern (Server ist Linux)
+* text=auto eol=lf
+
+# Binaerdateien nie umwandeln
+*.png binary
+*.jpg binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.pdf binary
