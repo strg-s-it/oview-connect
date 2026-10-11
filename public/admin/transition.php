@@ -86,11 +86,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'check
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'check_hellocash') {
-    // Wie oben in Etappen (~45 s je Klick). helloCash hat ein Anfrage-Limit (Connector Type) --
-    // die Schnellpruefung hoert beim ersten fehlenden Zugriff auf, ein alter Token kostet so
-    // meist nur ein, zwei Aufrufe. Bereits erledigte und in den letzten 24 h gepruefte Shops
-    // (Token unveraendert) werden uebersprungen.
+    // In Etappen: hoechstens MAX_PER_CLICK Shops je Klick. Das helloCash-Anfrage-Limit (Connector
+    // Type) teilen sich alle Shops -- auch Lagerabgleich und Rechnungen aus dem Webhook, und als
+    // Web-Aufruf darf diese Pruefung sogar deren Reserve nutzen. Deshalb wenige Shops je Klick und
+    // beim ersten Limit-Treffer sofort aufhoeren. Ein alter Token kostet einen Aufruf (Konto-
+    // Abfrage). Erledigte und in den letzten 24 h eindeutig gepruefte Shops werden uebersprungen.
     @set_time_limit(90);
+    $maxPerClick = 20;
+    $rateLimited = false;
     $crypto = new Crypto($config->require('CONNECT_ENCRYPTION_KEY'));
     $http = new \Connect\Http\HttpClient();
     $accessCheck = new \Connect\Setup\TargetAccessCheck($pdo, $crypto, new \Connect\Connector\ConnectorFactory($pdo, $crypto, $http), $config, $http);
@@ -108,7 +111,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'check
             $recent++;
             continue;
         }
-        if (time() - $started > 45) {
+        if ($rateLimited || $checked + count($failed) >= $maxPerClick || time() - $started > 45) {
             $remaining++;
             continue;
         }
@@ -117,7 +120,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'check
         } catch (\Throwable $ex) {
             $error = $ex->getMessage(); // z.B. Migration 0094 fehlt
         }
-        if ($error !== null) {
+        if ($error !== null && str_starts_with($error, \Connect\Http\RateLimiter::LIMIT_MESSAGE_PREFIX)) {
+            $rateLimited = true; // Shop bleibt offen, kommt beim naechsten Klick dran
+            $remaining++;
+        } elseif ($error !== null) {
             $failed[] = $m['shop'] . ': ' . $error;
         } else {
             $checked++;
@@ -125,6 +131,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'check
     }
     $flashMessage = "{$checked} helloCash-Token gegen die API v2 geprüft"
         . ($recent > 0 ? ", {$recent} waren schon aktuell (letzte 24 Std.)" : '') . '.'
+        . ($rateLimited ? ' helloCash-Anfrage-Limit erreicht – abgebrochen, damit Lagerabgleich und Rechnungen Vorrang haben. Bitte in einer Minute weiterklicken.' : '')
         . ($remaining > 0 ? " Noch {$remaining} offen – bitte noch einmal klicken." : ' Alle Shops der alten Welt sind geprüft.')
         . ($failed !== [] ? ' Nicht prüfbar: ' . implode(' · ', array_slice($failed, 0, 15)) . (count($failed) > 15 ? ' …' : '') : '');
     $flashType = $remaining > 0 || $failed !== [] ? 'warning' : 'success';

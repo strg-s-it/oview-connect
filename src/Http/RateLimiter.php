@@ -28,6 +28,9 @@ use PDOException;
  */
 final class RateLimiter
 {
+    /** Anfang der Fehlermeldung bei erreichtem Limit -- daran erkennen Aufrufer den Fall */
+    public const LIMIT_MESSAGE_PREFIX = 'Anfrage-Limit erreicht';
+
     /**
      * Anteil des Limits, den Hintergrund-Jobs (CLI, bin/scheduler.php) hoechstens
      * belegen duerfen. Der Rest bleibt fuer Echtzeit-Aufrufe frei (Rechnung per
@@ -80,7 +83,7 @@ final class RateLimiter
             $remaining = $deadline - microtime(true);
             if ($remaining <= 0 || $waitSeconds > $remaining) {
                 throw new \RuntimeException(
-                    "Anfrage-Limit erreicht (max. {$config->maxRequests} je {$config->windowSeconds}s) -- "
+                    self::LIMIT_MESSAGE_PREFIX . " (max. {$config->maxRequests} je {$config->windowSeconds}s) -- "
                     . "Job wird abgebrochen und beim naechsten Lauf fortgesetzt, statt laenger als {$maxWaitSeconds}s zu warten."
                 );
             }

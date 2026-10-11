@@ -302,6 +302,10 @@ final class MerchantDirectory
         } else {
             $result = $check->quickCheckToken($shop, $token);
         }
+        // Limit erreicht: keine Aussage ueber den Token -- bisheriges Ergebnis behalten
+        if ($result['ok'] === null && str_starts_with((string) $result['error'], \Connect\Http\RateLimiter::LIMIT_MESSAGE_PREFIX)) {
+            return (string) $result['error'];
+        }
         $this->pdo->prepare(
             'INSERT INTO connect_legacy_hellocash_checks (shop, token_hash, access_ok, missing, error, checked_at)
              VALUES (:shop, :hash, :ok, :missing, :error, CURRENT_TIMESTAMP)
@@ -351,7 +355,8 @@ final class MerchantDirectory
             return ['missing', $note, $check['checked_at']];
         }
 
-        return [$this->tokenState(0, $prepared), 'nicht prüfbar: ' . (string) $check['error'], $check['checked_at']];
+        // Ohne Datum: "nicht pruefbar" soll beim naechsten Klick gleich wieder drankommen
+        return [$this->tokenState(0, $prepared), 'nicht prüfbar (' . substr($check['checked_at'], 0, 16) . '): ' . (string) $check['error'], null];
     }
 
     /** @return array<string, array{token_hash: ?string, access_ok: ?bool, missing: list<string>, error: ?string, checked_at: string}> */
