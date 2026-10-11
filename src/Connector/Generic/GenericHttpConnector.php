@@ -115,15 +115,26 @@ final class GenericHttpConnector implements ConnectorInterface
      *
      * $stopAtFirstFailure: Schnellpruefung -- beim ersten nicht lesbaren Object (ausser denen in
      * $optionalKeys) aufhoeren. Reicht fuer "vollstaendig ja/nein" und spart bei alten Tokens
-     * die uebrigen Aufrufe (Rate-Limit).
+     * die uebrigen Aufrufe (Rate-Limit). $firstKeys werden zuerst geprueft (z.B. ein Object, an
+     * dem sich ein alter Token sofort erkennen laesst).
      *
      * @param list<string> $optionalKeys
+     * @param list<string> $firstKeys
      * @return array<string, array{label: string, ok: bool, status: ?int, error: ?string}>
      */
-    public function checkReadAccess(bool $stopAtFirstFailure = false, array $optionalKeys = []): array
+    public function checkReadAccess(bool $stopAtFirstFailure = false, array $optionalKeys = [], array $firstKeys = []): array
     {
+        $objectKeys = array_keys($this->objectsByKey);
+        usort($objectKeys, static function (string $a, string $b) use ($firstKeys): int {
+            $posA = array_search($a, $firstKeys, true);
+            $posB = array_search($b, $firstKeys, true);
+
+            return ($posA === false ? PHP_INT_MAX : $posA) <=> ($posB === false ? PHP_INT_MAX : $posB);
+        });
+
         $result = [];
-        foreach ($this->objectsByKey as $objectKey => $object) {
+        foreach ($objectKeys as $objectKey) {
+            $object = $this->objectsByKey[$objectKey];
             $operation = $this->operationsByObjectAndType[$objectKey . ':read_list'] ?? null;
             if ($operation === null) {
                 continue;

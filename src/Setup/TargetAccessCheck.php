@@ -135,9 +135,11 @@ final class TargetAccessCheck
 
     /**
      * Schnellpruefung eines helloCash-Tokens ohne Connection (Umstieg-Uebersicht, Token der alten
-     * Welt): hat er schon vollen v2-Zugriff? Alte v1-Tokens scheitern mit "Insufficient scope"
-     * (HTTP 403) -- die Pruefung hoert beim ersten fehlenden Object auf, ein alter Token kostet
-     * also meist nur ein, zwei Aufrufe. Nur lesend.
+     * Welt): hat er schon vollen v2-Zugriff? Zuerst die Konto-Abfrage (account_info, helloCash
+     * "GET company", Berechtigung company:read): alte v1-Tokens haben gar keine v2-Berechtigungen
+     * und scheitern dort mit "Insufficient scope" (HTTP 403) -- ein Aufruf genuegt. Geht sie durch,
+     * ist es ein v2-Token; dann werden die uebrigen Objects geprueft (ein v2-Token kann auch nur
+     * einen Teil der Berechtigungen haben), Abbruch beim ersten fehlenden. Nur lesend.
      *
      * @return array{ok: ?bool, missing: list<string>, error: ?string}
      *         ok = true vollstaendig, false unvollstaendig/ungueltig, null nicht pruefbar
@@ -154,12 +156,15 @@ final class TargetAccessCheck
         } catch (\Throwable $e) {
             return ['ok' => null, 'missing' => [], 'error' => mb_substr($e->getMessage(), 0, 250)];
         }
-        $objects = $connector instanceof GenericHttpConnector ? $connector->checkReadAccess(true, self::OPTIONAL_OBJECTS) : [];
+        // account_info zuerst und hier NICHT optional: sein Fehlen ist das Erkennungszeichen
+        $objects = $connector instanceof GenericHttpConnector
+            ? $connector->checkReadAccess(true, [], [ConnectionAccount::OBJECT_KEY])
+            : [];
         if ($objects === []) {
             return ['ok' => null, 'missing' => [], 'error' => 'Keine lesbaren Objects definiert.'];
         }
 
-        foreach ($objects as $object) {
+        foreach ($objects as $objectKey => $object) {
             if ($object['ok']) {
                 continue;
             }
@@ -171,6 +176,9 @@ final class TargetAccessCheck
                 return ['ok' => null, 'missing' => [], 'error' => $object['status'] === null
                     ? mb_substr((string) $object['error'], 0, 250)
                     : "helloCash antwortet mit HTTP {$object['status']}."];
+            }
+            if ($objectKey === ConnectionAccount::OBJECT_KEY) {
+                return ['ok' => false, 'missing' => [$object['label']], 'error' => 'alter v1-Token – keine v2-Berechtigungen (Konto/Firma nicht lesbar)'];
             }
         }
         $summary = self::summarize($objects, null);
