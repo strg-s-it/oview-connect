@@ -1,0 +1,26 @@
+# Statische Analyse fuer oView Connect -- laeuft nur lokal, nicht auf dem Server.
+#
+# Einmalig:  composer install --working-dir=tools/phpstan
+# Aufruf:    php tools/phpstan/vendor/bin/phpstan analyse
+#
+# Bekannte, (noch) nicht behobene Meldungen stehen in phpstan-baseline.neon --
+# gemeldet wird nur, was neu dazukommt.
+
+includes:
+    - phpstan-baseline.neon
+
+parameters:
+    level: 5
+    paths:
+        - src
+        - public
+        - bin
+        - bootstrap.php
+        - admin_bootstrap.php
+        - webhook_bootstrap.php
+    excludePaths:
+        - public/assets
+    # PHPMailer liegt am Server in vendor/ -- lokal nur fuer die Analyse hier
+    scanDirectories:
+        - tools/phpstan/vendor/phpmailer/phpmailer/src
+    tmpDir: .phpstan-cache

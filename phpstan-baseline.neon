@@ -1,0 +1,403 @@
+parameters:
+	ignoreErrors:
+		-
+			message: '#^Comparison operation "\<" between int\<80100, 80699\> and 80100 is always false\.$#'
+			identifier: smaller.alwaysFalse
+			count: 1
+			path: bin/worker_check.php
+
+		-
+			message: '#^Comparison operation "\>\=" between int\<80100, 80699\> and 80100 is always true\.$#'
+			identifier: greaterOrEqual.alwaysTrue
+			count: 2
+			path: bin/worker_check.php
+
+		-
+			message: '#^Offset ''mime'' on array\{0\: int\<0, max\>, 1\: int\<0, max\>, 2\: int, 3\: string, mime\: string, channels\?\: int, bits\?\: int\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: public/admin/connector_type_edit.php
+
+		-
+			message: '#^Comparison operation "\>\=" between int\<1, 2\> and 1 is always true\.$#'
+			identifier: greaterOrEqual.alwaysTrue
+			count: 1
+			path: public/admin/db_health.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between int and null will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: public/admin/db_health.php
+
+		-
+			message: '#^Call to an undefined method Connect\\Connector\\ConnectorInterface\:\:buildWriteBodyForPreview\(\)\.$#'
+			identifier: method.notFound
+			count: 1
+			path: public/admin/mapping_edit.php
+
+		-
+			message: '#^Offset ''action'' on non\-empty\-array\<mixed\> on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 2
+			path: public/admin/mapping_edit.php
+
+		-
+			message: '#^Ternary operator condition is always true\.$#'
+			identifier: ternary.alwaysTrue
+			count: 1
+			path: public/admin/mappings.php
+
+		-
+			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: public/admin/operation_edit.php
+
+		-
+			message: '#^Variable \$app might not be defined\.$#'
+			identifier: variable.undefined
+			count: 9
+			path: public/app/_billing_body.php
+
+		-
+			message: '#^Empty array passed to foreach\.$#'
+			identifier: foreach.emptyArray
+			count: 2
+			path: public/app/_bundles_body.php
+
+		-
+			message: '#^Offset \*NEVER\* on array\{\} in isset\(\) does not exist\.$#'
+			identifier: isset.offset
+			count: 1
+			path: public/app/_bundles_body.php
+
+		-
+			message: '#^Offset non\-empty\-string on array\{\} in isset\(\) does not exist\.$#'
+			identifier: isset.offset
+			count: 1
+			path: public/app/_bundles_body.php
+
+		-
+			message: '#^Offset string on array\{\} in isset\(\) does not exist\.$#'
+			identifier: isset.offset
+			count: 3
+			path: public/app/_bundles_body.php
+
+		-
+			message: '#^Offset string on array\{\} on left side of \?\? does not exist\.$#'
+			identifier: nullCoalesce.offset
+			count: 5
+			path: public/app/_bundles_body.php
+
+		-
+			message: '#^Result of && is always false\.$#'
+			identifier: booleanAnd.alwaysFalse
+			count: 2
+			path: public/app/_bundles_body.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between int and \*NEVER\* will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: public/app/_bundles_body.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between null and null will always evaluate to false\.$#'
+			identifier: notIdentical.alwaysFalse
+			count: 3
+			path: public/app/_bundles_body.php
+
+		-
+			message: '#^Unreachable statement \- code above always terminates\.$#'
+			identifier: deadCode.unreachable
+			count: 1
+			path: public/app/_bundles_body.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>comparisonKey" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: public/app/_bundles_body.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>direction" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: public/app/_bundles_body.php
+
+		-
+			message: '#^Variable \$app might not be defined\.$#'
+			identifier: variable.undefined
+			count: 5
+			path: public/app/_bundles_body.php
+
+		-
+			message: '#^Variable \$app might not be defined\.$#'
+			identifier: variable.undefined
+			count: 12
+			path: public/app/_connections_body.php
+
+		-
+			message: '#^Ternary operator condition is always true\.$#'
+			identifier: ternary.alwaysTrue
+			count: 1
+			path: public/app/_dashboard_body.php
+
+		-
+			message: '#^Variable \$app might not be defined\.$#'
+			identifier: variable.undefined
+			count: 7
+			path: public/app/_dashboard_body.php
+
+		-
+			message: '#^Variable \$adminNavItems in isset\(\) always exists and is not nullable\.$#'
+			identifier: isset.variable
+			count: 1
+			path: public/app/_header.php
+
+		-
+			message: '#^Variable \$app might not be defined\.$#'
+			identifier: variable.undefined
+			count: 5
+			path: public/app/_invoices_body.php
+
+		-
+			message: '#^Variable \$app might not be defined\.$#'
+			identifier: variable.undefined
+			count: 3
+			path: public/app/_objects_body.php
+
+		-
+			message: '#^Variable \$app might not be defined\.$#'
+			identifier: variable.undefined
+			count: 5
+			path: public/app/_prices_body.php
+
+		-
+			message: '#^Variable \$app might not be defined\.$#'
+			identifier: variable.undefined
+			count: 5
+			path: public/app/_product_check_body.php
+
+		-
+			message: '#^Comparison operation "\>" between 0 and 0 is always false\.$#'
+			identifier: greater.alwaysFalse
+			count: 1
+			path: public/app/_products_body.php
+
+		-
+			message: '#^Empty array passed to foreach\.$#'
+			identifier: foreach.emptyArray
+			count: 2
+			path: public/app/_products_body.php
+
+		-
+			message: '#^Offset ''buffer'' does not exist on array\{status\: ''success'', message\: string\|null, comparisonKey\: string\|null, rows\: array\<int, array\{match_value\: string\|null, label\: string\|null, shopify_quantity\: int\|null, target_quantity\: int\|null, status\: string, sku\: string\|null, barcode\: string\|null, price\: string\|null, \.\.\.\}\>\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: public/app/_products_body.php
+
+		-
+			message: '#^Offset ''buffer'' on array\{status\: ''success'', message\: string\|null, comparisonKey\: string\|null, rows\: array\<int, array\{match_value\: string\|null, label\: string\|null, shopify_quantity\: int\|null, target_quantity\: int\|null, status\: string, sku\: string\|null, barcode\: string\|null, price\: string\|null, \.\.\.\}\>\} on left side of \?\? does not exist\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: public/app/_products_body.php
+
+		-
+			message: '#^Offset ''flags'' does not exist on array\{match_value\: string\|null, label\: string\|null, shopify_quantity\: int\|null, target_quantity\: int\|null, status\: string, sku\: string\|null, barcode\: string\|null, price\: string\|null, \.\.\.\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 2
+			path: public/app/_products_body.php
+
+		-
+			message: '#^Offset ''problems'' on array\{status\: string, message\: string\|null, comparisonKey\: string\|null, rows\: array\<int, array\{match_value\: string\|null, label\: string\|null, shopify_quantity\: int\|null, target_quantity\: int\|null, status\: string, sku\: string\|null, barcode\: string\|null, price\: string\|null, \.\.\.\}\>\} on left side of \?\? does not exist\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: public/app/_products_body.php
+
+		-
+			message: '#^Variable \$app might not be defined\.$#'
+			identifier: variable.undefined
+			count: 5
+			path: public/app/_products_body.php
+
+		-
+			message: '#^Variable \$app might not be defined\.$#'
+			identifier: variable.undefined
+			count: 5
+			path: public/app/_status_body.php
+
+		-
+			message: '#^Variable \$app might not be defined\.$#'
+			identifier: variable.undefined
+			count: 2
+			path: public/app/_stock_body.php
+
+		-
+			message: '#^Variable \$app might not be defined\.$#'
+			identifier: variable.undefined
+			count: 5
+			path: public/app/_stock_history_body.php
+
+		-
+			message: '#^Variable \$app might not be defined\.$#'
+			identifier: variable.undefined
+			count: 11
+			path: public/app/_sync_mappings_body.php
+
+		-
+			message: '#^Variable \$app might not be defined\.$#'
+			identifier: variable.undefined
+			count: 2
+			path: public/app/_wishes_body.php
+
+		-
+			message: '#^Variable \$brand might not be defined\.$#'
+			identifier: variable.undefined
+			count: 2
+			path: public/app/welcome.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between string and null will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: src/Billing/PartnerSubscriptions.php
+
+		-
+			message: '#^Parameter \#1 \$array \(list\<array\<string, mixed\>\>\) of array_values is already a list, call has no effect\.$#'
+			identifier: arrayValues.list
+			count: 1
+			path: src/Flow/FlowInspector.php
+
+		-
+			message: '#^Comparison operation "\>" between int\<1, 65535\> and 65535 is always false\.$#'
+			identifier: greater.alwaysFalse
+			count: 1
+			path: src/Http/OutboundGuard.php
+
+		-
+			message: '#^Expression on left side of \?\? is not nullable\.$#'
+			identifier: nullCoalesce.expr
+			count: 1
+			path: src/Legacy/ShopMigrator.php
+
+		-
+			message: '#^Offset ''encryption'' on array\{host\: non\-falsy\-string, port\: int\|string, username\: non\-falsy\-string, password\: non\-falsy\-string, encryption\: string\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: src/Mail/InvoiceMailer.php
+
+		-
+			message: '#^Match expression does not handle remaining value\: string$#'
+			identifier: match.unhandled
+			count: 1
+			path: src/Maintenance/Retention.php
+
+		-
+			message: '#^Negated boolean expression is always false\.$#'
+			identifier: booleanNot.alwaysFalse
+			count: 1
+			path: src/Maintenance/Retention.php
+
+		-
+			message: '#^Offset ''kind'' on array\{kind\: string, subject\: string, body\: string\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: src/Notify/MessageService.php
+
+		-
+			message: '#^Parameter \#2 \$callback of function array_filter expects \(callable\(string\)\: bool\)\|null, ''strlen'' given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Shopify/ScopeCheck.php
+
+		-
+			message: '#^Offset ''status'' on array\{match_value\: string\|null, label\: string\|null, shopify_quantity\: int\|null, target_quantity\: int\|null, status\: string, sku\: string\|null, barcode\: string\|null, price\: string\|null, \.\.\.\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: src/Sync/AutoProductImportRunner.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between mixed and null will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: src/Sync/BundleService.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between mixed and null will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: src/Sync/Document/DocumentPipeline.php
+
+		-
+			message: '#^Call to function is_array\(\) with array\<string, mixed\> will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: src/Sync/ObjectCache.php
+
+		-
+			message: '#^Default value of the parameter \#6 \$extra \(array\{\}\) of method Connect\\Sync\\ProductComparisonService\:\:row\(\) is incompatible with type array\{sku\: string\|null, barcode\: string\|null, price\: string\|null, variant_title\: string\|null\}\.$#'
+			identifier: parameter.defaultValue
+			count: 1
+			path: src/Sync/ProductComparisonService.php
+
+		-
+			message: '#^Offset ''flags'' does not exist on array\{match_value\: string\|null, label\: string\|null, shopify_quantity\: int\|null, target_quantity\: int\|null, status\: string, sku\: string\|null, barcode\: string\|null, price\: string\|null, \.\.\.\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 2
+			path: src/Sync/ProductComparisonService.php
+
+		-
+			message: '#^Offset ''flags'' on array\{sku\: string\|null, barcode\: string\|null, price\: string\|null, variant_title\: string\|null\} on left side of \?\? does not exist\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: src/Sync/ProductComparisonService.php
+
+		-
+			message: '#^Offset ''shopify_price'' on array\{sku\: string\|null, barcode\: string\|null, price\: string\|null, variant_title\: string\|null\} on left side of \?\? does not exist\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: src/Sync/ProductComparisonService.php
+
+		-
+			message: '#^Offset ''target_price'' on array\{sku\: string\|null, barcode\: string\|null, price\: string\|null, variant_title\: string\|null\} on left side of \?\? does not exist\.$#'
+			identifier: nullCoalesce.offset
+			count: 1
+			path: src/Sync/ProductComparisonService.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between int and null will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: src/Sync/StockSyncRunner.php
+
+		-
+			message: '#^Call to function method_exists\(\) with ''Connect\\\\Http\\\\HttpClient'' and ''resetUsedSourceIps'' will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: src/Sync/SyncRunner.php
+
+		-
+			message: '#^Call to function method_exists\(\) with ''Connect\\\\Http\\\\HttpClient'' and ''usedSourceIps'' will always evaluate to true\.$#'
+			identifier: function.alreadyNarrowedType
+			count: 1
+			path: src/Sync/SyncRunner.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between mixed and null will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: src/Sync/SyncRunner.php
+
+		-
+			message: '#^Method Connect\\Sync\\TargetCapabilities\:\:forShop\(\) should return array\{connected\: bool, price_read\: bool, price_write\: bool, stock_write\: bool, invoices\: bool, pos_leads\: bool, target_name\: string\} but returns array\<string, bool\>\.$#'
+			identifier: return.type
+			count: 1
+			path: src/Sync/TargetCapabilities.php
+
+		-
+			message: '#^Constant Connect\\Wishes\\WishBoard\:\:PUBLIC_STATUSES is unused\.$#'
+			identifier: classConstant.unused
+			count: 1
+			path: src/Wishes/WishBoard.php

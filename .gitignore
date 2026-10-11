@@ -5,6 +5,8 @@
 
 # Abhaengigkeiten liegen nur auf dem Server (composer install dort)
 /vendor/
+# Lokale Werkzeuge (composer install --working-dir=tools/phpstan)
+/tools/*/vendor/
 
 # Editor / lokale Deploy-Konfiguration (enthaelt Zugangsdaten)
 .vscode/

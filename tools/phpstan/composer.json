@@ -1,0 +1,14 @@
+{
+    "name": "strg-s/oview-connect-tools-phpstan",
+    "description": "Nur lokal: statische Analyse fuer oView Connect. Eigener Ordner, damit connect/composer.json (Server) unberuehrt bleibt. Aufruf: siehe connect/phpstan.neon.",
+    "type": "project",
+    "license": "proprietary",
+    "require": {
+        "php": ">=8.1",
+        "phpstan/phpstan": "^2.1",
+        "phpmailer/phpmailer": "^6.9"
+    },
+    "config": {
+        "sort-packages": true
+    }
+}
