@@ -1,3 +1,7 @@
+> **Hinweis (2026-10-11):** Einstieg, Regeln und aktueller Stand stehen in `CLAUDE.md`.
+> Diese Datei ist das chronologische Arbeitstagebuch bis 2026-10-10 – Hintergründe zu einzelnen
+> Features, aber nicht der aktuelle Stand. Neue Einträge nur noch für größere Features.
+
 # Connect — Handoff (Stand 2026-09-27)
 
 ## ⚠️ Sofort beim Weiterarbeiten prüfen

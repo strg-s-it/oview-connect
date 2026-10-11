@@ -11,6 +11,8 @@ includes:
 
 parameters:
     level: 5
+    # Server und Worker laufen mit PHP 8.3 (lokal ist 8.4 installiert) -- 8.4-only-Code soll auffallen
+    phpVersion: 80300
     paths:
         - src
         - public
