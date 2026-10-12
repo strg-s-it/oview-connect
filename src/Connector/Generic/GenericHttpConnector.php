@@ -607,7 +607,20 @@ final class GenericHttpConnector implements ConnectorInterface
         }
 
         if ($this->requestFormat === 'xml') {
-            return WriteResult::success(XmlDatasetParser::parseFlat($response->body), 'Datensatz erfolgreich geschrieben.', $body, $response->body);
+            try {
+                $flat = XmlDatasetParser::parseFlat($response->body);
+            } catch (\Throwable $e) {
+                return WriteResult::failure('Schreiben fehlgeschlagen: Antwort ist kein gueltiges XML (' . $e->getMessage() . ')', $body, $response->body);
+            }
+            // MGM meldet Fehler mit HTTP 200 und <status>ERROR</status> bzw.
+            // <Result status="ERROR"> (Handbuch Crystalp 1.0.3) -- ohne diese
+            // Pruefung galt ein abgelehnter Auftrag als angelegt (kein Fehler-
+            // Mail, Dedup blockiert jeden neuen Versuch).
+            if (strtoupper(trim((string) ($flat['status'] ?? ''))) === 'ERROR') {
+                return WriteResult::failure('Schreiben fehlgeschlagen: Zielsystem meldet status=ERROR - ' . mb_substr($response->body, 0, 1000), $body, $response->body);
+            }
+
+            return WriteResult::success($flat, 'Datensatz erfolgreich geschrieben.', $body, $response->body);
         }
 
         $decoded = json_decode($response->body, true);
