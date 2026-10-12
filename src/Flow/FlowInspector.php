@@ -571,6 +571,7 @@ final class FlowInspector
             $settings[] = $this->setting('Rabatt an der Position', $discountLabels[$profile->discountMode] ?? $profile->discountMode, self::SRC_PROFILE, $profileWhere, $objectUrl);
             $settings[] = $this->setting('Betragsrabatt gilt …', $profile->absoluteDiscountPerUnit ? 'pro Stück' : 'für die ganze Position', self::SRC_PROFILE, $profileWhere, $objectUrl);
             $settings[] = $this->setting('Nachkommastellen beim Prozentrabatt', (string) $profile->percentDecimals, self::SRC_PROFILE, $profileWhere, $objectUrl);
+            $settings[] = $this->setting('Versand-Artikel', $profile->shippingArticleId ?? 'keiner', self::SRC_PROFILE, $profileWhere, $objectUrl);
             $settings[] = $this->setting('Antwort: Pfad zur Belegnummer', $profile->documentNumberPath ?? 'leer', self::SRC_PROFILE, $profileWhere, $objectUrl);
         }
         foreach ($this->all('SELECT field_key, max_length FROM connect_object_fields WHERE object_id = :id AND max_length IS NOT NULL', ['id' => (int) $targetObject['id']]) as $field) {

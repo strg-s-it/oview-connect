@@ -51,6 +51,8 @@ final class DocumentProfile
         public readonly ?string $customerZipField = null,
         public readonly ?string $customerCityField = null,
         public readonly ?string $customerStreetField = null,
+        /** Artikelnummer/-ID des Versand-Artikels im Zielsystem (z.B. Crystalp/MGM "9900"), null = Versand ohne Artikel. */
+        public readonly ?string $shippingArticleId = null,
     ) {
     }
 
@@ -88,6 +90,7 @@ final class DocumentProfile
             $text('customer_zip_field'),
             $text('customer_city_field'),
             $text('customer_street_field'),
+            $text('shipping_article_id'),
         );
     }
 
@@ -127,6 +130,7 @@ final class DocumentProfile
             'customer_zip_field' => $this->customerZipField,
             'customer_city_field' => $this->customerCityField,
             'customer_street_field' => $this->customerStreetField,
+            'shipping_article_id' => $this->shippingArticleId,
         ];
     }
 

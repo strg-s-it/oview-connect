@@ -160,6 +160,14 @@ final class OrderPreparer
     {
         $rendered = [];
         foreach ($lines as $line) {
+            // Versand-Artikel laut Belegprofil (z.B. Crystalp/MGM "9900"): als
+            // target_article_id UND sku, damit es egal ist, welches der beiden
+            // Felder die Vorlage auf die Artikelnummer des Zielsystems legt.
+            if ($line['is_shipping'] && $profile->shippingArticleId !== null && $line['target_article_id'] === null) {
+                $line['target_article_id'] = $profile->shippingArticleId;
+                $line['sku'] = $profile->shippingArticleId;
+            }
+
             $discount = $line['discount_displayable']
                 ? self::discountFields($profile, (float) $line['unit_price_original'], (float) $line['quantity'], (float) $line['line_total'])
                 : null;

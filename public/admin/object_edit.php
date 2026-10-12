@@ -103,6 +103,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'updat
             'customer_zip_field' => (string) ($_POST['customer_zip_field'] ?? ''),
             'customer_city_field' => (string) ($_POST['customer_city_field'] ?? ''),
             'customer_street_field' => (string) ($_POST['customer_street_field'] ?? ''),
+            'shipping_article_id' => (string) ($_POST['shipping_article_id'] ?? ''),
         ]));
         $profileJson = json_encode($profile->toArray(), JSON_UNESCAPED_SLASHES);
     } else {
@@ -495,6 +496,11 @@ require dirname(__DIR__) . '/app/_header.php';
                         <label class="form-label">Nachkommastellen beim Prozentrabatt</label>
                         <input type="number" name="percent_decimals" class="form-control" min="0" max="4" value="<?php echo $documentProfile->percentDecimals; ?>">
                         <small class="text-secondary">HelloCash: 0 (rundet sonst selbst, z. B. 25,9 % → 26 %).</small>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Versand-Artikel im Zielsystem</label>
+                        <input type="text" name="shipping_article_id" class="form-control font-monospace" placeholder="leer = Versand ohne Artikel" value="<?php echo htmlspecialchars((string) $documentProfile->shippingArticleId); ?>">
+                        <small class="text-secondary">Artikelnummer/-ID für die Versandposition (MGM Crystalp: 9900). Steht in der aufbereiteten Bestellung als <code>target_article_id</code> und <code>sku</code> der Versandposition.</small>
                     </div>
                     <div class="col-md-4">
                         <label class="form-label">Antwort: Pfad zur Belegnummer</label>
