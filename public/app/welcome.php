@@ -369,8 +369,9 @@ require __DIR__ . '/_header.php';
             <div class="wz-choices">
                 <?php foreach ($types as $type): ?>
                     <?php
-                    $icon = !empty($type['logo_path'])
-                        ? '<img src="../assets/logos/' . htmlspecialchars(rawurlencode((string) $type['logo_path'])) . '" alt="">'
+                    $logoSrc = \Connect\Connector\ConnectorLogo::src($type);
+                    $icon = $logoSrc !== null
+                        ? '<img src="' . htmlspecialchars($logoSrc) . '" alt="">'
                         : htmlspecialchars(mb_substr((string) $type['name'], 0, 1));
                     $current = (string) ($answers['type_id'] ?? $shopRow['target_type_id'] ?? '');
                     echo $choice('connector_type_id', (string) $type['id'], $current, $icon, (string) $type['name'], (string) ($type['description'] ?? ''));

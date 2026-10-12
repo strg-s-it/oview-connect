@@ -398,7 +398,7 @@ require dirname(__DIR__) . '/app/_header.php';
     <div class="col-12">
         <div class="card">
             <div class="card-header">
-                <h3 class="card-title">Stammdaten</h3>
+                <h3 class="card-title"><?php echo \Connect\Connector\ConnectorLogo::imgForTypeId($pdo, (int) $object['connector_type_id']); ?>Stammdaten <span class="text-secondary fw-normal">· <?php echo htmlspecialchars((string) $object['connector_type_name']); ?></span></h3>
             </div>
             <div class="card-body">
                 <form method="post" class="row g-2">

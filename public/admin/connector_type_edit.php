@@ -153,53 +153,35 @@ function build_auth_field_entry(string $key, string $label, string $type, bool $
 // POST: alle Zugangsdaten-Felder auf einmal speichern (eine Tabelle, ein Button)
 // -----------------------------------------------------------------------
 // -----------------------------------------------------------------------
-// POST: Logo fuer die Auswahl-Kacheln im ersten Fenster der Merchants
-// (app/welcome.php, Migration 0076). Abgelegt unter public/assets/logos/.
-// Nur Rasterbilder -- SVG bewusst nicht (kann Script enthalten).
+// POST: Logo des Systems (Assistent, Connector Builder, Objekt-Ansichten).
+// Seit Migration 0097 als data-URI in connect_connector_types.logo_data --
+// eine Datei unter public/assets/logos/ loescht der minuetliche rsync --delete
+// sofort wieder (live 2026-10-12, MGM-Logo). Siehe Connect\Connector\ConnectorLogo.
 // -----------------------------------------------------------------------
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($_POST['action'] ?? '', ['upload_logo', 'remove_logo'], true)) {
-    $logoDir = dirname(__DIR__) . '/assets/logos';
-    $oldLogo = (string) ($type['logo_path'] ?? '');
-    $newLogo = null;
-    $logoError = null;
+    $upload = $_POST['action'] === 'upload_logo'
+        ? \Connect\Connector\ConnectorLogo::fromUpload($_FILES['logo'] ?? null)
+        : ['data' => null, 'error' => null];
 
-    if ($_POST['action'] === 'upload_logo') {
-        $file = $_FILES['logo'] ?? null;
-        $allowed = ['image/png' => 'png', 'image/jpeg' => 'jpg', 'image/webp' => 'webp', 'image/gif' => 'gif'];
-        $info = is_array($file) && ($file['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_OK ? @getimagesize((string) $file['tmp_name']) : false;
-
-        if (!is_array($file) || ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
-            $logoError = 'Bitte eine Bilddatei auswählen.';
-        } elseif ((int) $file['size'] > 1024 * 1024) {
-            $logoError = 'Das Bild ist größer als 1 MB.';
-        } elseif ($info === false || !isset($allowed[$info['mime'] ?? ''])) {
-            $logoError = 'Nur PNG, JPG, WebP oder GIF.';
-        } else {
-            if (!is_dir($logoDir) && !@mkdir($logoDir, 0755, true)) {
-                $logoError = 'Ordner für Logos konnte nicht angelegt werden.';
-            } else {
-                $newLogo = preg_replace('/[^a-z0-9_\-]/', '', strtolower((string) $type['type_key'])) . '-' . time() . '.' . $allowed[$info['mime']];
-                if (!move_uploaded_file((string) $file['tmp_name'], $logoDir . '/' . $newLogo)) {
-                    $logoError = 'Speichern fehlgeschlagen.';
-                    $newLogo = null;
-                }
-            }
-        }
-    }
-
-    if ($logoError !== null) {
-        $flashMessage = $logoError;
+    if ($upload['error'] !== null) {
+        $flashMessage = $upload['error'];
         $flashType = 'danger';
     } else {
         try {
-            $pdo->prepare('UPDATE connect_connector_types SET logo_path = :logo WHERE id = :id')->execute(['logo' => $newLogo, 'id' => $typeId]);
-            if ($oldLogo !== '' && $oldLogo !== $newLogo && is_file($logoDir . '/' . basename($oldLogo))) {
-                @unlink($logoDir . '/' . basename($oldLogo));
+            $pdo->prepare('UPDATE connect_connector_types SET logo_data = :data WHERE id = :id')
+                ->execute(['data' => $upload['data'], 'id' => $typeId]);
+            // Alte Logo-Datei (Migration 0076) aufraeumen, falls noch eingetragen
+            $oldLogo = basename((string) ($type['logo_path'] ?? ''));
+            if ($oldLogo !== '') {
+                $pdo->prepare('UPDATE connect_connector_types SET logo_path = NULL WHERE id = :id')->execute(['id' => $typeId]);
+                if (is_file(dirname(__DIR__) . '/assets/logos/' . $oldLogo)) {
+                    @unlink(dirname(__DIR__) . '/assets/logos/' . $oldLogo);
+                }
             }
-            $flashMessage = $newLogo !== null ? 'Logo gespeichert.' : 'Logo entfernt.';
+            $flashMessage = $upload['data'] !== null ? 'Logo gespeichert.' : 'Logo entfernt.';
             $flashType = 'success';
         } catch (\Throwable $e) {
-            $flashMessage = 'Logo konnte nicht gespeichert werden (Migration 0076 eingespielt?): ' . $e->getMessage();
+            $flashMessage = 'Logo konnte nicht gespeichert werden (Migration 0097 eingespielt?): ' . $e->getMessage();
             $flashType = 'danger';
         }
         $typeStmt->execute(['id' => $typeId]);
@@ -445,26 +427,23 @@ require dirname(__DIR__) . '/app/_header.php';
         </div>
     </div>
 
-    <?php if (array_key_exists('logo_path', $type) && !in_array($type['type_key'], ['shopify', 'connect_internal'], true)): ?>
+    <?php if ($type['type_key'] !== 'connect_internal'): ?>
+        <?php $logoImg = \Connect\Connector\ConnectorLogo::img($type, 48, ''); ?>
         <div class="col-12">
             <div class="card">
                 <div class="card-header"><h3 class="card-title">Logo</h3></div>
                 <div class="card-body">
-                    <p class="text-secondary">Erscheint auf der Kachel im ersten Fenster der Merchants („Welche Software möchtest du verbinden?“). PNG, JPG, WebP oder GIF, max. 1 MB, am besten quer und mit transparentem Hintergrund.</p>
+                    <p class="text-secondary">Erscheint im ersten Fenster der Merchants („Welche Software nutzt du?“), im Connector Builder und bei den Objekten. PNG, JPG, WebP oder GIF, max. 300 KB, am besten quer und mit transparentem Hintergrund.<?php echo array_key_exists('logo_data', $type) ? '' : ' <strong>Hochladen erst nach Migration 0097 möglich.</strong>'; ?></p>
                     <div class="d-flex align-items-center gap-3 flex-wrap">
                         <div class="border rounded p-2 text-center" style="width: 160px;">
-                            <?php if (!empty($type['logo_path'])): ?>
-                                <img src="../assets/logos/<?php echo htmlspecialchars(rawurlencode((string) $type['logo_path'])); ?>" alt="" style="height: 48px; max-width: 100%; object-fit: contain;">
-                            <?php else: ?>
-                                <span class="text-secondary small">kein Logo</span>
-                            <?php endif; ?>
+                            <?php echo $logoImg !== '' ? $logoImg : '<span class="text-secondary small">kein Logo</span>'; ?>
                         </div>
                         <form method="post" enctype="multipart/form-data" class="d-flex gap-2 align-items-center">
                             <input type="hidden" name="action" value="upload_logo">
                             <input type="file" name="logo" accept="image/png,image/jpeg,image/webp,image/gif" class="form-control" required>
                             <button type="submit" class="btn btn-primary text-nowrap">Hochladen</button>
                         </form>
-                        <?php if (!empty($type['logo_path'])): ?>
+                        <?php if ($logoImg !== ''): ?>
                             <form method="post">
                                 <input type="hidden" name="action" value="remove_logo">
                                 <button type="submit" class="btn btn-outline-danger">Entfernen</button>
@@ -574,7 +553,7 @@ require dirname(__DIR__) . '/app/_header.php';
     <div class="col-12">
         <div class="card">
             <div class="card-header">
-                <h3 class="card-title">Objects</h3>
+                <h3 class="card-title"><?php echo \Connect\Connector\ConnectorLogo::img($type); ?>Objects</h3>
             </div>
             <?php if (count($objects) === 0): ?>
                 <div class="card-body text-secondary">Noch keine Objects definiert.</div>
@@ -593,7 +572,7 @@ require dirname(__DIR__) . '/app/_header.php';
                         <tbody>
                             <?php foreach ($objects as $object): ?>
                                 <tr>
-                                    <td><?php echo htmlspecialchars($object['label']); ?></td>
+                                    <td><?php echo \Connect\Connector\ConnectorLogo::img($type, 16) . htmlspecialchars($object['label']); ?></td>
                                     <td><code><?php echo htmlspecialchars($object['object_key']); ?></code></td>
                                     <td><?php echo (int) $object['field_count']; ?></td>
                                     <td><?php echo (int) $object['operation_count']; ?></td>

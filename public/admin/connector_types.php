@@ -97,7 +97,7 @@ require dirname(__DIR__) . '/app/_header.php';
                     <tbody>
                         <?php foreach ($connectorTypes as $type): ?>
                             <tr>
-                                <td><?php echo htmlspecialchars($type['name']); ?></td>
+                                <td><?php echo \Connect\Connector\ConnectorLogo::img($type) . htmlspecialchars($type['name']); ?></td>
                                 <td><code><?php echo htmlspecialchars($type['type_key']); ?></code></td>
                                 <td><?php echo htmlspecialchars($type['auth_type']); ?></td>
                                 <td><?php echo htmlspecialchars($type['request_format']); ?></td>

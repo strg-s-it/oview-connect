@@ -35,7 +35,7 @@ $shop = $app->shop;
 $objectCache = new ObjectCache($pdo);
 
 $connectionsStmt = $pdo->prepare(
-    'SELECT c.id, c.label, t.name AS connector_type_name
+    'SELECT c.id, c.label, c.connector_type_id, t.name AS connector_type_name
      FROM connect_connections c
      JOIN connect_connector_types t ON t.id = c.connector_type_id
      WHERE c.shop = :shop
@@ -205,6 +205,17 @@ require __DIR__ . '/_header.php';
                             <?php endforeach; ?>
                         </select>
                     </div>
+                    <?php
+                    $selectedTypeLogo = '';
+                    foreach ($connections as $connection) {
+                        if ($selectedConnectionId === (int) $connection['id']) {
+                            $selectedTypeLogo = \Connect\Connector\ConnectorLogo::imgForTypeId($pdo, (int) $connection['connector_type_id'], 32, '');
+                        }
+                    }
+                    ?>
+                    <?php if ($selectedTypeLogo !== ''): ?>
+                        <div class="col-auto pb-1"><?php echo $selectedTypeLogo; ?></div>
+                    <?php endif; ?>
                     <?php if (count($objectsForSelectedConnection) > 0): ?>
                         <div class="col-auto">
                             <label class="form-label">Object</label>
