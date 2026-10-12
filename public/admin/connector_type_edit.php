@@ -102,6 +102,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'updat
         }
     }
 
+    // Oeffentlich/privat fuer den Haendler-Assistenten (Migration 0096) getrennt -- fehlt die
+    // Spalte noch, bleibt der Rest gespeichert
+    $isPublic = isset($_POST['is_public']) ? 1 : 0;
+    try {
+        $pdo->prepare('UPDATE connect_connector_types SET is_public = :is_public WHERE id = :id')
+            ->execute(['is_public' => $isPublic, 'id' => $typeId]);
+    } catch (\PDOException) {
+        if ($isPublic === 0) {
+            $flashMessage = 'Gespeichert, „privat“ aber erst nach Migration 0096 möglich.';
+            $flashType = 'danger';
+        }
+    }
+
     $typeStmt->execute(['id' => $typeId]);
     $type = $typeStmt->fetch();
     }
@@ -337,6 +350,13 @@ require dirname(__DIR__) . '/app/_header.php';
                     <div class="col-12">
                         <label class="form-label">Beschreibung</label>
                         <input type="text" name="description" class="form-control" value="<?php echo htmlspecialchars((string) $type['description']); ?>">
+                    </div>
+                    <div class="col-12">
+                        <div class="form-check form-switch">
+                            <input type="checkbox" class="form-check-input" id="type-is-public" name="is_public" <?php echo (int) ($type['is_public'] ?? 1) === 1 ? 'checked' : ''; ?>>
+                            <label class="form-check-label" for="type-is-public">Öffentlich — Händler können dieses System im Setup-Assistenten selbst auswählen</label>
+                        </div>
+                        <small class="text-secondary">Aus = privat: nur Shops, die schon eine Connection dieses Typs haben, sehen es im Assistenten (z. B. MGM nur für Crystalp). Die Connection für einen neuen Shop legst du dann im Admin unter Connections an.<?php echo array_key_exists('is_public', $type) ? '' : ' Wirkt erst nach Migration 0096.'; ?></small>
                     </div>
                     <div class="col-md-3">
                         <label class="form-label">Art der Anmeldung</label>

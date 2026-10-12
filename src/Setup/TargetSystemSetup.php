@@ -18,13 +18,28 @@ use PDO;
 final class TargetSystemSetup
 {
     /**
-     * Auswaehlbare Systeme (alles ausser Shopify als feste Quelle und dem internen Typ).
+     * Auswaehlbare Systeme fuer den Haendler (alles ausser Shopify als feste Quelle und
+     * dem internen Typ). Private Typen (is_public = 0, Migration 0096, z.B. MGM nur fuer
+     * Crystalp) nur fuer Shops, die schon eine Connection dieses Typs haben. Ohne $shop
+     * nur oeffentliche. Fehlt die Spalte noch, gilt alles als oeffentlich.
      *
      * @return array<int, array<string, mixed>>
      */
-    public static function availableTypes(PDO $pdo): array
+    public static function availableTypes(PDO $pdo, ?string $shop = null): array
     {
-        return $pdo->query("SELECT * FROM connect_connector_types WHERE type_key NOT IN ('shopify', 'connect_internal') ORDER BY name")->fetchAll();
+        $types = $pdo->query("SELECT * FROM connect_connector_types WHERE type_key NOT IN ('shopify', 'connect_internal') ORDER BY name")->fetchAll();
+
+        $ownTypeIds = [];
+        if ($shop !== null) {
+            $stmt = $pdo->prepare('SELECT DISTINCT connector_type_id FROM connect_connections WHERE shop = :shop');
+            $stmt->execute(['shop' => $shop]);
+            $ownTypeIds = array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
+        }
+
+        return array_values(array_filter(
+            $types,
+            static fn (array $type): bool => (int) ($type['is_public'] ?? 1) === 1 || in_array((int) $type['id'], $ownTypeIds, true)
+        ));
     }
 
     /**
@@ -33,9 +48,14 @@ final class TargetSystemSetup
      */
     public static function connect(PDO $pdo, Crypto $crypto, ConnectorFactory $factory, string $shop, int $connectorTypeId, array $credentials): array
     {
-        $typeStmt = $pdo->prepare("SELECT name FROM connect_connector_types WHERE id = :id AND type_key NOT IN ('shopify', 'connect_internal')");
-        $typeStmt->execute(['id' => $connectorTypeId]);
-        $typeName = $typeStmt->fetchColumn();
+        // Nur Systeme, die diesem Shop auch angeboten werden (private Typen, Migration 0096) --
+        // serverseitig, nicht nur durch Verstecken in der Auswahl.
+        $typeName = false;
+        foreach (self::availableTypes($pdo, $shop) as $type) {
+            if ((int) $type['id'] === $connectorTypeId) {
+                $typeName = (string) $type['name'];
+            }
+        }
 
         if ($connectorTypeId <= 0 || $typeName === false) {
             return ['ok' => false, 'connected' => false, 'message' => 'Bitte ein System auswählen.'];

@@ -102,7 +102,10 @@ require dirname(__DIR__) . '/app/_header.php';
                                 <td><?php echo htmlspecialchars($type['auth_type']); ?></td>
                                 <td><?php echo htmlspecialchars($type['request_format']); ?></td>
                                 <td><?php echo (int) $type['object_count']; ?></td>
-                                <td><?php echo $type['is_builtin'] ? '<span class="badge bg-blue-lt">builtin</span>' : ''; ?></td>
+                                <td>
+                                    <?php echo $type['is_builtin'] ? '<span class="badge bg-blue-lt">builtin</span>' : ''; ?>
+                                    <?php echo (int) ($type['is_public'] ?? 1) === 0 ? '<span class="badge bg-orange-lt" title="Im Händler-Assistenten nur für Shops mit bestehender Connection">privat</span>' : ''; ?>
+                                </td>
                                 <td>
                                     <a href="connector_type_edit.php?id=<?php echo (int) $type['id']; ?>" class="btn btn-sm btn-outline-primary">Bearbeiten</a>
                                 </td>

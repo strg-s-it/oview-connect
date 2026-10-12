@@ -1013,9 +1013,9 @@ if ($shopSettings['target_connection_id'] !== null) {
 }
 
 // Fuer den Merchant-Einrichtungswizard: alle Zielsystem-Optionen ausser
-// Shopify (das ist immer die feste Quelle, siehe auch admin/shops.php).
-$targetConnectorTypesStmt = $pdo->query("SELECT * FROM connect_connector_types WHERE type_key NOT IN ('shopify', 'connect_internal') ORDER BY name");
-$targetConnectorTypes = $targetConnectorTypesStmt->fetchAll();
+// Shopify (das ist immer die feste Quelle, siehe auch admin/shops.php),
+// private Typen nur fuer Shops mit bestehender Connection (Migration 0096).
+$targetConnectorTypes = \Connect\Setup\TargetSystemSetup::availableTypes($pdo, $shop);
 
 $pageTitle = $isAdmin ? ('Jobs — ' . $shop) : 'Einstellungen';
 

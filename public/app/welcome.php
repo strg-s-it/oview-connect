@@ -116,7 +116,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'wizar
 
         case 'software':
             $typeId = (int) ($_POST['connector_type_id'] ?? 0);
-            $typeIds = array_map('intval', array_column(TargetSystemSetup::availableTypes($pdo), 'id'));
+            $typeIds = array_map('intval', array_column(TargetSystemSetup::availableTypes($pdo, $shop), 'id'));
             if (!in_array($typeId, $typeIds, true)) {
                 $flashMessage = 'Bitte wähle deine Software aus.';
                 break;
@@ -128,7 +128,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'wizar
             // Bereits verbunden und nichts Neues eingetragen: Zugangsdaten nicht mit Leerwerten ueberschreiben
             $chosenTypeId = (int) ($wizard->answers($shop)['type_id'] ?? 0);
             $typedCredentials = false;
-            foreach (TargetSystemSetup::availableTypes($pdo) as $type) {
+            foreach (TargetSystemSetup::availableTypes($pdo, $shop) as $type) {
                 if ((int) $type['id'] !== $chosenTypeId) {
                     continue;
                 }
@@ -241,7 +241,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($postedStep) && in_array($pos
 
 $answers = $wizard->answers($shop);
 $shopRow = $wizard->shop($shop);
-$types = TargetSystemSetup::availableTypes($pdo);
+$types = TargetSystemSetup::availableTypes($pdo, $shop);
 $typeById = [];
 foreach ($types as $type) {
     $typeById[(int) $type['id']] = $type;
