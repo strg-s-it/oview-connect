@@ -155,6 +155,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_
             $newSettings[$key] = (string) ($_POST['settings'][$key] ?? '');
         }
     }
+    // Nachlauf-Start (settings.backfill_since, gesetzt beim Einschalten) nicht verlieren
+    $oldSettings = $mapping['settings'] !== null ? (json_decode((string) $mapping['settings'], true) ?: []) : [];
+    if (isset($oldSettings['backfill_since'])) {
+        $newSettings['backfill_since'] = $oldSettings['backfill_since'];
+    }
 
     $pdo->prepare('UPDATE connect_sync_mappings SET settings = :settings, updated_at = CURRENT_TIMESTAMP WHERE id = :id AND shop = :shop')
         ->execute(['settings' => json_encode($newSettings, JSON_UNESCAPED_UNICODE), 'id' => $mappingId, 'shop' => $shop]);
@@ -202,6 +207,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'set_t
         $flashMessage = $newTemplateId !== null
             ? 'Vorlage zugeordnet.'
             : 'Vorlage entfernt — die Rechnung läuft wieder über die bisherige, fest programmierte HelloCash-Logik.';
+        $flashType = 'success';
+        $mappingStmt->execute(['id' => $mappingId, 'shop' => $shop]);
+        $mapping = $mappingStmt->fetch();
+    }
+}
+
+// -----------------------------------------------------------------------
+// POST: Ausloeser einer bestehenden Aktivierung aendern (bisher nur beim
+// Anlegen in admin/mappings.php waehlbar). Webhook = sofort bei "Bestellung
+// bezahlt" (webhooks/order_paid.php sucht trigger_type 'webhook' + Topic),
+// Zeitplan = Nachlauf (bin/scheduler.php, schedule_interval_minutes).
+// -----------------------------------------------------------------------
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_triggers') {
+    $webhookEnabled = isset($_POST['webhook_enabled']);
+    $scheduleEnabled = isset($_POST['schedule_enabled']);
+    $intervalMinutes = (int) ($_POST['schedule_interval_minutes'] ?? 0);
+
+    if (!$webhookEnabled && !$scheduleEnabled) {
+        $flashMessage = 'Bitte mindestens einen Auslöser (Webhook und/oder Zeitplan) aktivieren.';
+        $flashType = 'danger';
+    } elseif ($scheduleEnabled && $intervalMinutes <= 0) {
+        $flashMessage = 'Bitte ein Intervall in Minuten (größer 0) angeben.';
+        $flashType = 'danger';
+    } elseif ($webhookEnabled && $mapping['source_object_key'] !== 'order') {
+        $flashMessage = 'Webhook-Auslöser ist aktuell nur für Aktivierungen mit Quelle "Bestellung" verfügbar.';
+        $flashType = 'danger';
+    } else {
+        $pdo->prepare(
+            'UPDATE connect_sync_mappings
+             SET trigger_type = :trigger_type, trigger_topic = :trigger_topic, schedule_interval_minutes = :interval_minutes, updated_at = CURRENT_TIMESTAMP
+             WHERE id = :id AND shop = :shop'
+        )->execute([
+            'trigger_type' => $webhookEnabled ? 'webhook' : 'schedule',
+            'trigger_topic' => $webhookEnabled ? 'orders/paid' : null,
+            'interval_minutes' => $scheduleEnabled ? $intervalMinutes : null,
+            'id' => $mappingId,
+            'shop' => $shop,
+        ]);
+        $flashMessage = 'Auslöser gespeichert.';
         $flashType = 'success';
         $mappingStmt->execute(['id' => $mappingId, 'shop' => $shop]);
         $mapping = $mappingStmt->fetch();
@@ -389,6 +433,25 @@ require dirname(__DIR__) . '/app/_header.php';
                         <?php endif; ?>
                         <?php if ($mapping['schedule_interval_minutes'] !== null): ?>
                             <div>Zeitplan (alle <?php echo (int) $mapping['schedule_interval_minutes']; ?> Min.)</div>
+                        <?php endif; ?>
+                        <form method="post" class="d-flex flex-wrap gap-3 align-items-center mt-2">
+                            <input type="hidden" name="action" value="save_triggers">
+                            <?php if ($mapping['source_object_key'] === 'order'): ?>
+                                <label class="form-check mb-0">
+                                    <input type="checkbox" class="form-check-input" name="webhook_enabled" <?php echo ($mapping['trigger_type'] ?? '') === 'webhook' && $mapping['trigger_topic'] !== null ? 'checked' : ''; ?>>
+                                    <span class="form-check-label">Webhook „Bestellung bezahlt“ (sofort)</span>
+                                </label>
+                            <?php endif; ?>
+                            <label class="form-check mb-0">
+                                <input type="checkbox" class="form-check-input" name="schedule_enabled" <?php echo $mapping['schedule_interval_minutes'] !== null ? 'checked' : ''; ?>>
+                                <span class="form-check-label">Zeitplan-Nachlauf alle</span>
+                            </label>
+                            <input type="number" name="schedule_interval_minutes" class="form-control form-control-sm" style="width: 90px" min="1" value="<?php echo (int) ($mapping['schedule_interval_minutes'] ?? 15); ?>">
+                            <span class="text-secondary">Min.</span>
+                            <button type="submit" class="btn btn-sm btn-outline-primary">Auslöser speichern</button>
+                        </form>
+                        <?php if ($mapping['source_object_key'] === 'order'): ?>
+                            <div class="text-secondary small mt-1">Der Webhook braucht ein Shopify-Abo „Bestellung bezahlt“ auf Connect (Betrieb → Webhooks) – wird beim Umschalten des Shops nach Connect automatisch angelegt. Der Zeitplan bleibt als Sicherheitsnetz sinnvoll, doppelte Belege verhindert die Dedup-Sperre.</div>
                         <?php endif; ?>
                     </dd>
 
