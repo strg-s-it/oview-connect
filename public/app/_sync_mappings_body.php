@@ -118,7 +118,7 @@ if ($isAdmin && $_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? ''
 if ($isAdmin && $_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'toggle_mapping') {
     $mappingId = (int) ($_POST['mapping_id'] ?? 0);
 
-    $ownershipCheck = $pdo->prepare('SELECT enabled, name FROM connect_sync_mappings WHERE id = :id AND shop = :shop');
+    $ownershipCheck = $pdo->prepare('SELECT enabled, name, settings FROM connect_sync_mappings WHERE id = :id AND shop = :shop');
     $ownershipCheck->execute(['id' => $mappingId, 'shop' => $shop]);
     $mapping = $ownershipCheck->fetch();
 
@@ -127,8 +127,13 @@ if ($isAdmin && $_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? ''
         $flashType = 'danger';
     } else {
         $newEnabled = ((int) $mapping['enabled']) === 1 ? 0 : 1;
-        $pdo->prepare('UPDATE connect_sync_mappings SET enabled = :enabled, updated_at = CURRENT_TIMESTAMP WHERE id = :id')
-            ->execute(['enabled' => $newEnabled, 'id' => $mappingId]);
+        // Beim Einschalten Nachlauf-Start auf JETZT (settings.backfill_since), siehe admin/mappings.php
+        $settings = $mapping['settings'] !== null ? (json_decode((string) $mapping['settings'], true) ?: []) : [];
+        if ($newEnabled === 1) {
+            $settings['backfill_since'] = time();
+        }
+        $pdo->prepare('UPDATE connect_sync_mappings SET enabled = :enabled, settings = :settings, updated_at = CURRENT_TIMESTAMP WHERE id = :id')
+            ->execute(['enabled' => $newEnabled, 'settings' => json_encode($settings, JSON_UNESCAPED_UNICODE), 'id' => $mappingId]);
 
         $flashMessage = "\"{$mapping['name']}\" ist jetzt " . ($newEnabled === 1 ? 'aktiv' : 'inaktiv') . '.';
         $flashType = 'success';

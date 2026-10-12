@@ -148,7 +148,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'creat
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'toggle_mapping') {
     $mappingId = (int) ($_POST['mapping_id'] ?? 0);
 
-    $ownershipCheck = $pdo->prepare('SELECT enabled, name FROM connect_sync_mappings WHERE id = :id AND shop = :shop AND target_connection_id IS NOT NULL');
+    $ownershipCheck = $pdo->prepare('SELECT enabled, name, settings FROM connect_sync_mappings WHERE id = :id AND shop = :shop AND target_connection_id IS NOT NULL');
     $ownershipCheck->execute(['id' => $mappingId, 'shop' => $shop]);
     $mapping = $ownershipCheck->fetch();
 
@@ -157,8 +157,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'toggl
         $flashType = 'danger';
     } else {
         $newEnabled = ((int) $mapping['enabled']) === 1 ? 0 : 1;
-        $pdo->prepare('UPDATE connect_sync_mappings SET enabled = :enabled, updated_at = CURRENT_TIMESTAMP WHERE id = :id')
-            ->execute(['enabled' => $newEnabled, 'id' => $mappingId]);
+        // Beim Einschalten den Nachlauf-Start auf JETZT setzen (settings.backfill_since,
+        // wie Connect\Setup\ShopActivations) -- sonst holt der Zeitplan alle Datensaetze
+        // der letzten 48 h nach (live 2026-10-12 Crystalp: 4 Bestellungen ab dem 10.10.
+        // als MGM-Auftrag angelegt, obwohl die Aktivierung gerade erst eingeschaltet wurde).
+        $settings = $mapping['settings'] !== null ? (json_decode((string) $mapping['settings'], true) ?: []) : [];
+        if ($newEnabled === 1) {
+            $settings['backfill_since'] = time();
+        }
+        $pdo->prepare('UPDATE connect_sync_mappings SET enabled = :enabled, settings = :settings, updated_at = CURRENT_TIMESTAMP WHERE id = :id')
+            ->execute(['enabled' => $newEnabled, 'settings' => json_encode($settings, JSON_UNESCAPED_UNICODE), 'id' => $mappingId]);
 
         $flashMessage = "\"{$mapping['name']}\" ist jetzt " . ($newEnabled === 1 ? 'aktiv' : 'inaktiv') . '.';
         $flashType = 'success';
