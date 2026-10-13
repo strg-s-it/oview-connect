@@ -397,18 +397,8 @@ require __DIR__ . '/_header.php';
             <?php if ($alreadyConnected): ?>
                 <div class="alert alert-success mb-0">&#10003; Verbunden mit <?php echo htmlspecialchars((string) $chosenType['name']); ?>. Neue Zugangsdaten kannst du unten eintragen, sonst einfach weiter.</div>
             <?php endif; ?>
-            <?php if (($chosenType['type_key'] ?? '') === 'hellocash'): ?>
-                <details class="border rounded p-3">
-                    <summary class="fw-bold" style="cursor:pointer">Wo finde ich den API-Token in helloCash?</summary>
-                    <ol class="mt-2 mb-0 d-grid gap-1">
-                        <li>Melde dich bei <strong>helloCash</strong> an (myhellocash.com) – am besten in einem zweiten Tab, damit du hier nichts verlierst.</li>
-                        <li>Öffne im Menü links <strong>Registrierkasse → Einstellungen</strong> und dort in der Liste den Punkt <strong>„helloCash API“</strong>.</li>
-                        <li>Klicke rechts oben auf <strong>„Token erstellen“</strong>. Hast du schon einen Token, steht in der Tabelle stattdessen <strong>„Neu generieren“</strong> – Achtung: der bisherige Token funktioniert dann nicht mehr.</li>
-                        <li>Wähle bei den Berechtigungen <strong>„Alle Scopes“</strong> (Lesen und Schreiben), damit oView Artikel, Lagerstände und Rechnungen verarbeiten kann.</li>
-                        <li>Kopiere den Token <strong>sofort</strong> und füge ihn unten ein. In der Tabelle siehst du später nur eine gekürzte Vorschau davon.</li>
-                    </ol>
-                </details>
-            <?php endif; ?>
+            <?php // Anleitung je Connector Type (Admin -> Connector Type, Migration 0099) ?>
+            <?php echo \Connect\Setup\SetupHelp::details($chosenType['setup_help'] ?? null, 'Wo finde ich die Zugangsdaten für ' . (string) $chosenType['name'] . '?'); ?>
             <div class="d-grid gap-3">
                 <?php foreach ($authFields as $field): ?>
                     <?php if (($field['type'] ?? 'text') === 'hidden'): ?>

@@ -115,6 +115,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'updat
         }
     }
 
+    // Anleitung fuer den Haendler (Migration 0099), ebenfalls getrennt
+    $setupHelp = trim(str_replace("\r\n", "\n", (string) ($_POST['setup_help'] ?? '')));
+    try {
+        $pdo->prepare('UPDATE connect_connector_types SET setup_help = :help WHERE id = :id')
+            ->execute(['help' => $setupHelp !== '' ? $setupHelp : null, 'id' => $typeId]);
+    } catch (\PDOException) {
+        if ($setupHelp !== '') {
+            $flashMessage = 'Gespeichert, die Anleitung aber erst nach Migration 0099 möglich.';
+            $flashType = 'danger';
+        }
+    }
+
     $typeStmt->execute(['id' => $typeId]);
     $type = $typeStmt->fetch();
     }
@@ -339,6 +351,11 @@ require dirname(__DIR__) . '/app/_header.php';
                             <label class="form-check-label" for="type-is-public">Öffentlich — Händler können dieses System im Setup-Assistenten selbst auswählen</label>
                         </div>
                         <small class="text-secondary">Aus = privat: nur Shops, die schon eine Connection dieses Typs haben, sehen es im Assistenten (z. B. MGM nur für Crystalp). Die Connection für einen neuen Shop legst du dann im Admin unter Connections an.<?php echo array_key_exists('is_public', $type) ? '' : ' Wirkt erst nach Migration 0096.'; ?></small>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label" for="type-setup-help">Anleitung für Händler: Wo finde ich die Zugangsdaten?</label>
+                        <textarea id="type-setup-help" name="setup_help" rows="6" class="form-control" placeholder="Melde dich bei XY an&#10;Öffne **Einstellungen → API**&#10;Kopiere den Token"><?php echo htmlspecialchars((string) ($type['setup_help'] ?? '')); ?></textarea>
+                        <small class="text-secondary">Erscheint im Einrichtungs-Assistent beim Schritt „Verbinden“ als aufklappbare Liste. Ein Schritt je Zeile, <code>**fett**</code> ist möglich. Leer lassen = keine Anleitung.<?php echo array_key_exists('setup_help', $type) ? '' : ' Wirkt erst nach Migration 0099.'; ?></small>
                     </div>
                     <div class="col-md-3">
                         <label class="form-label">Art der Anmeldung</label>
