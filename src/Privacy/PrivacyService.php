@@ -33,6 +33,33 @@ final class PrivacyService
     /** Datensaetze pro Durchlauf beim Durchsuchen grosser Tabellen. */
     private const SCAN_BATCH = 500;
 
+    /**
+     * Tabellen mit Spalte "shop", die beim Loeschen eines Shops geleert werden (shop/redact UND
+     * Admin -> Shops -> Entfernen, eine gemeinsame Liste). Kinder loeschen per FK mit (Sets,
+     * Preislauf-Positionen). Eine fehlende Tabelle (Migration nicht eingespielt) wird uebersprungen.
+     * Bewusst NICHT enthalten: Zustimmungen und Datenschutz-Protokoll (Nachweis, werden nur markiert),
+     * Nachrichten-Abmeldungen (connect_message_optouts, Opt-out gilt weiter), Wuensche/Stimmen.
+     * Neue Tabellen mit Shop-Bezug gehoeren hier eingetragen.
+     */
+    public const SHOP_DATA_TABLES = [
+        'connect_activity_log',
+        'connect_stock_sync_log',
+        'connect_stock_sync_runs',
+        'connect_product_visibility_log',
+        'connect_shop_fields',
+        'connect_product_checks',
+        'connect_low_stock_items',
+        'connect_batch_changes',
+        'connect_price_sync_exclusions',
+        'connect_bundles',
+        'connect_shop_attachments',
+        'connect_prepared_credentials',
+        'connect_report_mails',
+        'connect_message_recipients',
+        'connect_legacy_scope_checks',
+        'connect_legacy_hellocash_checks',
+    ];
+
     public function __construct(private readonly PDO $pdo) {}
 
     // ------------------------------------------------------------------
@@ -53,18 +80,17 @@ final class PrivacyService
     {
         $statements = [
             'webhook_events' => 'DELETE FROM connect_webhook_events WHERE shop = :shop',
-            'activity_log' => 'DELETE FROM connect_activity_log WHERE shop = :shop',
-            'stock_sync_log' => 'DELETE FROM connect_stock_sync_log WHERE shop = :shop',
             'sync_mappings' => 'DELETE FROM connect_sync_mappings WHERE shop = :shop',
             'connections' => 'DELETE FROM connect_connections WHERE shop = :shop',
             'shop' => 'DELETE FROM connect_shops WHERE shop = :shop',
         ];
 
-        // Tabellen neuerer Migrationen (0073/0074) -- fehlen sie noch, wird nur dieser Teil uebersprungen
-        $optionalStatements = [
-            'product_visibility_log' => 'DELETE FROM connect_product_visibility_log WHERE shop = :shop',
-            'shop_fields' => 'DELETE FROM connect_shop_fields WHERE shop = :shop',
-        ];
+        // Protokolle und Betriebsdaten je Shop (SHOP_DATA_TABLES) -- fehlt eine Tabelle noch (Migration
+        // nicht eingespielt), wird nur dieser Teil uebersprungen
+        $optionalStatements = [];
+        foreach (self::SHOP_DATA_TABLES as $table) {
+            $optionalStatements[preg_replace('/^connect_/', '', $table)] = "DELETE FROM {$table} WHERE shop = :shop";
+        }
 
         $counts = [];
         $this->pdo->beginTransaction();

@@ -101,15 +101,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'remov
         // Zustimmungen bleiben als Nachweis (3 Jahre, Migration 0077), nur markiert
         \Connect\Setup\LegalTexts::markShopDeleted($pdo, $shopToRemove);
         // Protokolle und Betriebsdaten dieses Shops (vorher blieben sie stehen und tauchten nach einer
-        // Neuinstallation wieder auf). Bewusst NICHT geloescht: Zustimmungen/Datenschutz-Protokoll (Nachweis),
-        // Nachrichten-Abmeldungen (Opt-out gilt weiter), Wuensche, Pruefprotokolle der alten Welt.
-        // Tabellen neuerer Migrationen -- fehlen sie noch, nur ueberspringen (Kinder loeschen per FK mit).
-        foreach ([
-            'connect_activity_log', 'connect_stock_sync_log', 'connect_stock_sync_runs', 'connect_product_checks',
-            'connect_low_stock_items', 'connect_batch_changes', 'connect_price_sync_exclusions', 'connect_bundles',
-            'connect_shop_attachments', 'connect_prepared_credentials', 'connect_report_mails',
-            'connect_product_visibility_log', 'connect_shop_fields',
-        ] as $shopTable) {
+        // Neuinstallation wieder auf). Dieselbe Liste wie beim Datenschutz-Webhook shop/redact, dort
+        // steht auch, was bewusst erhalten bleibt. Fehlende Tabellen (Migration) werden uebersprungen.
+        foreach (\Connect\Privacy\PrivacyService::SHOP_DATA_TABLES as $shopTable) {
             try {
                 $pdo->prepare("DELETE FROM {$shopTable} WHERE shop = :shop")->execute(['shop' => $shopToRemove]);
             } catch (\PDOException) {
