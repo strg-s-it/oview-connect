@@ -124,6 +124,7 @@ $currentShopName = (string) ($app->shop ?? ($_GET['shop'] ?? ''));
     <title><?php echo htmlspecialchars($pageTitle); ?> · <?php echo htmlspecialchars($brand->name); ?></title>
     <link rel="stylesheet" href="../assets/vendor/tabler/css/tabler.min.css">
     <?php echo $brand->headHtml(); ?>
+    <?php require __DIR__ . '/_loading_overlay_head.php'; ?>
     <style>
         /* Menuepunkte nicht umbrechen ("Daten ansehen" stand sonst zweizeilig) */
         .navbar-nav .nav-link, .navbar-nav .btn { white-space: nowrap; }
@@ -157,6 +158,7 @@ $currentShopName = (string) ($app->shop ?? ($_GET['shop'] ?? ''));
     <?php endif; ?>
 </head>
 <body>
+    <?php require __DIR__ . '/_loading_overlay_body.php'; ?>
     <div class="page">
         <header class="navbar navbar-expand-md navbar-light d-print-none">
             <div class="container-xl">
