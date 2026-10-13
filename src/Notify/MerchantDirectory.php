@@ -39,6 +39,9 @@ final class MerchantDirectory
     /** @var array<string, string> helloCash-Token der alten Welt je Shop (hellocash_binding, nur fuer die Pruefung, nie in all()) */
     private array $legacyHelloCashTokens = [];
 
+    /** @var array<string, string> letzter erfolgreicher helloCash-Aufruf der alten Welt je Shop (hellocash_binding.hellocash_heartbeat, nur gueltige Zeitpunkte) */
+    private array $legacyHelloCashHeartbeats = [];
+
     /** @var array<string, true>|null Shops mit Zeile in hellocash_binding (null = nicht lesbar) */
     private ?array $legacyBindings = null;
 
@@ -319,12 +322,22 @@ final class MerchantDirectory
         // die Liste auch ohne Leserecht auf hellocash_binding erscheint
         try {
             $bindings = [];
-            foreach ($legacyPdo->query('SELECT shop, token FROM hellocash_binding')->fetchAll() as $row) {
+            try {
+                $bindingRows = $legacyPdo->query('SELECT shop, token, hellocash_heartbeat FROM hellocash_binding')->fetchAll();
+            } catch (\Throwable) {
+                $bindingRows = $legacyPdo->query('SELECT shop, token FROM hellocash_binding')->fetchAll(); // Spalte hellocash_heartbeat fehlt
+            }
+            foreach ($bindingRows as $row) {
                 $bindingShop = (string) $row['shop'];
                 $bindingShop = str_contains($bindingShop, '.') ? substr($bindingShop, 0, (int) strpos($bindingShop, '.')) : $bindingShop;
                 $token = trim((string) ($row['token'] ?? ''));
                 if ($bindingShop !== '') {
                     $bindings[$bindingShop] = true;
+                    // 2000-01-01 = letzter Aufruf gescheitert (alte Welt), nur echte Zeitpunkte merken
+                    $heartbeat = (string) ($row['hellocash_heartbeat'] ?? '');
+                    if ($heartbeat > '2001-01-01') {
+                        $this->legacyHelloCashHeartbeats[$bindingShop] = $heartbeat;
+                    }
                 }
                 if ($bindingShop !== '' && $token !== '') {
                     $this->legacyHelloCashTokens[$bindingShop] = $token;
@@ -403,6 +416,12 @@ final class MerchantDirectory
         }
         if ($check['access_ok'] === false) {
             $note = $check['error'] ?? ('alter Token' . ($check['missing'] !== [] ? ', fehlt z. B.: ' . implode(', ', $check['missing']) : ''));
+            // 401 von v2, obwohl die alte Welt den Token noch erfolgreich nutzt: kein toter Token,
+            // sondern ein v1-Token, den die API v2 gar nicht kennt
+            $heartbeat = $this->legacyHelloCashHeartbeats[$shop] ?? null;
+            if ($heartbeat !== null && str_contains((string) $check['error'], 'HTTP 401') && strtotime($heartbeat) > time() - 3 * 86400) {
+                $note = 'v1-Token: v2 lehnt ihn ab (HTTP 401), in der alten Welt funktioniert er noch (zuletzt ' . substr($heartbeat, 0, 16) . ') – neuer Token nötig';
+            }
 
             return ['missing', $note, $check['checked_at']];
         }
