@@ -125,6 +125,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'wizar
             $redirect($stepUrl('connect'));
 
         case 'connect':
+            // Bewusst ohne erfolgreichen Test weitermachen: merken, damit der Schritt beim Neuladen nicht
+            // wieder auftaucht (er zaehlt sonst nur mit aktiver Verbindung als erledigt)
+            if (!empty($_POST['skip'])) {
+                $wizard->remember($shop, ['connect_skipped' => date('c')]);
+                $redirect($stepUrl($nextStepAfter('connect')));
+            }
             // Bereits verbunden und nichts Neues eingetragen: Zugangsdaten nicht mit Leerwerten ueberschreiben
             $chosenTypeId = (int) ($wizard->answers($shop)['type_id'] ?? 0);
             $typedCredentials = false;
@@ -418,7 +424,7 @@ require __DIR__ . '/_header.php';
                 <?php endforeach; ?>
             </div>
             <?php if ($connectFailed || (($shopRow['target_connection_id'] ?? null) !== null && !$alreadyConnected)): ?>
-                <p class="text-secondary small mb-0">Klappt es nicht? Du kannst auch <a href="<?php echo htmlspecialchars($stepUrl($nextStepAfter('connect'))); ?>">ohne erfolgreichen Test weitermachen</a> und die Verbindung später unter Status prüfen.</p>
+                <p class="text-secondary small mb-0">Klappt es nicht? Du kannst auch <button type="submit" name="skip" value="1" formnovalidate class="btn btn-link p-0 align-baseline small">ohne erfolgreichen Test weitermachen</button> und die Verbindung später unter Status prüfen.</p>
             <?php endif; ?>
         <?php endif; ?>
 

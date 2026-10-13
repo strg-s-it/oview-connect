@@ -153,7 +153,10 @@ final class SetupWizard
         return match ($step) {
             'welcome' => isset($a['welcome']) && (new LegalTexts($this->pdo))->pendingForShop($shop) === [],
             'software' => isset($a['type_id']) || ($s['target_connection_id'] ?? null) !== null,
-            'connect' => ($s['target_connection_id'] ?? null) !== null,
+            // Erst erledigt, wenn die Verbindung wirklich steht -- eine angelegte, aber fehlgeschlagene
+            // Connection (leerer oder falscher Token) zaehlt nicht. Bewusst uebersprungen geht ueber
+            // "ohne erfolgreichen Test weitermachen" (connect_skipped).
+            'connect' => (($s['target_connection_id'] ?? null) !== null && ($s['target_status'] ?? '') === 'active') || isset($a['connect_skipped']),
             'compare' => isset($a['compare']),
             'stock' => isset($a['stock']),
             'stock_lead' => isset($a['lead']),
