@@ -289,7 +289,13 @@ require dirname(__DIR__) . '/app/_header.php';
                     <?php foreach ($candidates as $m): ?>
                         <tr>
                             <td><?php if (($m['kind'] === 'remove' || $m['kind'] === 'review') && !$m['active']): ?><input type="checkbox" class="form-check-input cl-pick<?php echo $m['kind'] === 'remove' ? ' cl-remove' : ''; ?>" name="shops[]" value="<?php echo $e($m['shop']); ?>" aria-label="<?php echo $e($m['shop']); ?> entfernen"><?php endif; ?></td>
-                            <td><?php echo $e($m['shop']); ?><div class="small text-secondary"><?php echo $e($m['email'] ?? 'keine Mail-Adresse'); ?></div></td>
+                            <td>
+                                <?php if (preg_match('/^[a-z0-9][a-z0-9\-]*$/i', (string) $m['shop']) === 1): ?>
+                                    <a href="https://<?php echo $e($m['shop']); ?>.myshopify.com" target="_blank" rel="noopener noreferrer" title="Shop im neuen Tab öffnen (Weiterleitung auf den Shop = existiert noch)"><?php echo $e($m['shop']); ?> ↗</a>
+                                <?php else: ?>
+                                    <?php echo $e($m['shop']); ?>
+                                <?php endif; ?>
+                                <div class="small text-secondary"><?php echo $e($m['email'] ?? 'keine Mail-Adresse'); ?></div></td>
                             <td><span class="badge <?php echo $e($m['badge']); ?>"><?php echo $e($m['reason']); ?></span></td>
                             <td class="small">
                                 <div><?php echo $m['has_store'] ? 'Shop-Konto' : '<span class="text-danger">kein Shop-Konto</span>'; ?></div>
