@@ -85,6 +85,7 @@ $entriesStmt = $pdo->prepare(
              (CASE
                  WHEN operation LIKE 'create_%' THEN 'Produkt-Import'
                  WHEN operation = 'stock_update' THEN 'Lagerbestand'
+                 WHEN operation = 'update_price' THEN 'Preis'
                  WHEN operation = 'translate' THEN 'Übersetzung'
                  ELSE operation
              END) COLLATE utf8mb4_unicode_ci AS category,

@@ -314,7 +314,7 @@ final class BatchEditService
                 $this->finish($batchId);
                 continue;
             }
-            $writer = new PriceWriter($this->pdo, $context, ShopStockRules::forShop($this->pdo, (string) $batch['shop'])['prices_gross']);
+            $writer = new PriceWriter($this->pdo, $context, ShopStockRules::forShop($this->pdo, (string) $batch['shop'])['prices_gross'], (string) $batch['shop']);
 
             // Shopify: je Produkt gesammelt
             $items = $this->pdo->prepare("SELECT id, external_id, product_id, new_price, new_compare_at, set_compare_at FROM connect_batch_change_items WHERE batch_id = :id AND status = 'pending' AND side = 'shopify' ORDER BY product_id, id LIMIT 2000");

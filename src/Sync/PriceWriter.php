@@ -35,7 +35,11 @@ GRAPHQL;
      * @param bool $pricesGross Preis-Basis des Shops (ShopStockRules::forShop()['prices_gross']) -- bestimmt,
      *        welches Preisfeld des Zielsystems geschrieben wird (Rolle "Preis" bzw. "Preis netto")
      */
-    public function __construct(private readonly PDO $pdo, private readonly ProductMatchContext $context, private readonly bool $pricesGross = true)
+    /**
+     * @param ?string $shop wenn gesetzt, wird jedes Schreiben (Shopify und Zielsystem) mit Anfrage/Antwort
+     *        ins Aktivitaets-Protokoll geschrieben (Admin -> Protokoll, Art "Preis")
+     */
+    public function __construct(private readonly PDO $pdo, private readonly ProductMatchContext $context, private readonly bool $pricesGross = true, private readonly ?string $shop = null)
     {
     }
 
@@ -71,18 +75,26 @@ GRAPHQL;
             $variants[] = $variant;
         }
 
+        $requestJson = json_encode(['productId' => $productId, 'variants' => $variants], JSON_UNESCAPED_UNICODE) ?: null;
+        $count = count($variants);
+
         try {
             $response = self::withThrottleRetry(static fn (): array => $connector->graphQlQuery(self::MUTATION, ['productId' => $productId, 'variants' => $variants]));
         } catch (\Throwable $e) {
+            $this->log('shopify', $this->context->shopifyObject->key, false, "Preis für {$count} Variante(n) von Produkt {$productId} nicht gesetzt: " . $e->getMessage(), $productId, $requestJson, null);
+
             return array_fill_keys(array_column($items, 'id'), mb_substr($e->getMessage(), 0, 400));
         }
+        $responseJson = json_encode($response, JSON_UNESCAPED_UNICODE) ?: null;
 
         $userErrors = $response['data']['result']['userErrors'] ?? [];
         if (is_array($userErrors) && $userErrors !== []) {
             $message = implode('; ', array_map(static fn ($e): string => (string) ($e['message'] ?? 'Fehler'), $userErrors));
+            $this->log('shopify', $this->context->shopifyObject->key, false, "Preis für {$count} Variante(n) von Produkt {$productId} nicht gesetzt: {$message}", $productId, $requestJson, $responseJson);
 
             return array_fill_keys(array_column($items, 'id'), mb_substr($message, 0, 400));
         }
+        $this->log('shopify', $this->context->shopifyObject->key, true, "Preis für {$count} Variante(n) von Produkt {$productId} gesetzt.", $productId, $requestJson, $responseJson);
 
         // Zwischenspeicher nachziehen
         $cache = new ObjectCache($this->pdo);
@@ -119,12 +131,25 @@ GRAPHQL;
             'id' => $externalId,
             $bodyKey => round($price, 2),
         ]);
+        $priceText = number_format($price, 2, ',', '');
         if (!$result->success) {
+            $this->log(null, $this->context->targetObject->key, false, "Preis auf {$priceText} nicht gesetzt: " . $result->message, $externalId, $result->requestBody, $result->responseBody);
+
             return mb_substr($result->message, 0, 400);
         }
+        $this->log(null, $this->context->targetObject->key, true, "Preis auf {$priceText} gesetzt.", $externalId, $result->requestBody, $result->responseBody);
         (new ObjectCache($this->pdo))->updateCachedFields($this->context->targetConnectionId, $this->context->targetObject->key, $externalId, [$priceField->key => round($price, 2)]);
 
         return null;
+    }
+
+    /** Ins Aktivitaets-Protokoll schreiben, falls ein Shop bekannt ist (siehe Konstruktor). */
+    private function log(?string $connectorType, string $objectKey, bool $success, string $message, ?string $externalId, ?string $requestBody, ?string $responseBody): void
+    {
+        if ($this->shop === null) {
+            return;
+        }
+        ActivityLog::log($this->pdo, $this->shop, $connectorType, $objectKey, 'update_price', $success, $message, $externalId, $requestBody, $responseBody);
     }
 
     public static function money(float $value): string
