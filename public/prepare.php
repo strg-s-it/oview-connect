@@ -35,8 +35,8 @@ use Connect\Shopify\ScopeCheck;
  * Wo der Merchant den Token in helloCash erstellt. Bei Aenderungen in helloCash hier anpassen.
  */
 const HELLOCASH_TOKEN_STEPS = [
-    'Halte diese Seite offen und melde dich in einem zweiten Tab bei helloCash an (myhellocash.com). Öffne <strong>Einstellungen → Schnittstellen → API</strong>.',
-    'Achte darauf, dass <strong>alle Berechtigungen</strong> (Lesen und Schreiben) aktiviert sind – vor allem Artikel, Rechnungen, Kunden, Mitarbeiter, Zahlungsarten und Firma.',
+    'Halte diese Seite offen und melde dich in einem zweiten Tab bei helloCash an (myhellocash.com). Öffne im Menü <strong>Registrierkasse → Einstellungen → „helloCash API“</strong>.',
+    'Achte darauf, dass für den Token <strong>„Alle Scopes“</strong> (Lesen und Schreiben) gilt – vor allem Artikel, Rechnungen, Kunden, Mitarbeiter, Zahlungsarten und Firma.',
     'Klicke auf <strong>„Neu generieren“</strong>. Wichtig: Dein bisheriger Token funktioniert ab diesem Moment nicht mehr.',
     'Kopiere den neuen Token <strong>sofort</strong> und füge ihn unten ein. Wir setzen ihn gleich überall ein, damit Lagerabgleich und Rechnungen ohne Unterbrechung weiterlaufen.',
 ];
