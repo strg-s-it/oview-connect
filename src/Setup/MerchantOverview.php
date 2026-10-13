@@ -65,11 +65,10 @@ final class MerchantOverview
         foreach ($invoice['open_errors'] as $error) {
             $problems[] = $this->invoiceProblem($error, $targetName);
         }
-        if ($stock['enabled'] && ($s['stock_sync_direction'] ?? '') === 'target_to_shopify' && ($s['stock_primary_location_id'] ?? '') === ''
-            && count($this->locations($shop)) > 1) {
+        if ($stock['enabled'] && ($s['stock_primary_location_id'] ?? '') === '') {
             $problems[] = [
-                'title' => 'Shopify-Standort fehlt',
-                'text' => 'Dein Shop hat mehrere Standorte. Wähle, für welchen die Bestände aus ' . $targetName . ' gelten.',
+                'title' => 'Shopify-Standort fehlt – Lagerabgleich pausiert',
+                'text' => 'Ohne Standort gleicht oView keine Bestände ab. Wähle den Standort, dessen Bestand mit ' . $targetName . ' abgeglichen wird.',
                 'action' => ['Standort wählen', 'sync_mappings.php#setup-stock'],
             ];
         }

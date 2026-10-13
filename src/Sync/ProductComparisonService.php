@@ -190,6 +190,7 @@ final class ProductComparisonService
         $targetDuplicates = ComparisonValueCheck::duplicateValues($targetRecords, $context->targetMatchField->key);
 
         $rows = [];
+        $hiddenByLocation = 0; // Shopify-Produkte, die am gewaehlten Standort nicht gefuehrt werden
 
         foreach ($shopifyRecords as $record) {
             if (($record['_status'] ?? 'active') === 'orphaned') {
@@ -207,10 +208,16 @@ final class ProductComparisonService
             // An die Bedingung "Standort gewaehlt" geknuepft, damit Shops ohne
             // Standort-Einschraenkung ihr bisheriges Verhalten (null -> Status
             // "unknown" weiter unten, sichtbar statt versteckt) unveraendert behalten.
+            // NUR wenn der Datensatz mit GENAU diesem Standort geladen wurde (_location_id, siehe
+            // ObjectCache::refresh()): ein aelterer Cache-Eintrag aus der Zeit ohne/mit anderem
+            // Standort hat ebenfalls null, heisst aber nur "noch nicht mit Standort geladen" und
+            // wird bis zum naechsten Abruf als "Bestand unbekannt" gezeigt statt versteckt.
             if ($context->locationId !== null
                 && array_key_exists($context->shopifyStockField->key, $record)
                 && $record[$context->shopifyStockField->key] === null
+                && (string) ($record['_location_id'] ?? '') === (string) $context->locationId
             ) {
+                $hiddenByLocation++;
                 continue;
             }
 
@@ -322,6 +329,8 @@ final class ProductComparisonService
             'comparisonKey' => $context->comparisonKey,
             'rows' => $rows,
             'problems' => $problems,
+            'hidden_by_location' => $hiddenByLocation,
+            'location_missing' => $context->locationId === null || $context->locationId === '',
             'buffer' => $context->direction === 'target_to_shopify' ? $rules['buffer'] : 0,
             'prices_comparable' => $shopifyPriceField !== null && $targetPriceField !== null,
             'prices_gross' => $rules['prices_gross'],

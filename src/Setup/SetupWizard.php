@@ -287,7 +287,8 @@ final class SetupWizard
         $compare = isset(self::COMPARE_LABELS[$a['compare'] ?? '']) ? (string) $a['compare'] : (string) ($s['comparison_key'] ?? 'sku');
         $stockOn = ($a['stock'] ?? 'no') === 'yes';
         $direction = ($a['lead'] ?? 'target') === 'shopify' ? 'shopify_to_target' : 'target_to_shopify';
-        $location = $stockOn && $direction === 'target_to_shopify' && ($a['location'] ?? '') !== '' ? (string) $a['location'] : null;
+        // Standort in beide Richtungen speichern: der Shopify-Bestand wird je Standort gelesen
+        $location = $stockOn && ($a['location'] ?? '') !== '' ? (string) $a['location'] : null;
         $invoice = in_array($a['invoice'] ?? '', ['invoice', 'stockonly', 'none'], true) ? (string) $a['invoice'] : 'none';
         $prices = in_array((string) ($a['prices'] ?? ''), ['0', '1'], true) ? (int) $a['prices'] : null;
 
@@ -321,6 +322,10 @@ final class SetupWizard
 
         $notes = [];
         $activations->syncStockMapping($shop, $stockOn);
+        // Standort neu/geaendert: Shopify-Produkte sofort mit dem neuen Standort laden
+        if ($location !== null && $location !== (string) ($s['stock_primary_location_id'] ?? '')) {
+            \Connect\Sync\JobScheduler::dataJobsNowQuietly($this->pdo, $shop);
+        }
         \Connect\Billing\Plans::applyIntervals($this->pdo, $shop); // Daten-Jobs der neuen Software nach Abo
         $invoiceWarning = $activations->syncInvoiceMapping($shop, $invoice !== 'none');
         if ($invoiceWarning !== null) {

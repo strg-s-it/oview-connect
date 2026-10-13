@@ -104,6 +104,13 @@ final class StockSyncRunner
             return self::result($e->status, 0, 0, 0, $e->getMessage(), []);
         }
 
+        // Ohne Shopify-Standort wird nichts abgeglichen: Shopify fuehrt den Bestand je Standort,
+        // ohne Auswahl ist unklar, welcher Bestand gemeint ist (und Schreiben nach Shopify geht gar nicht).
+        // Der Hinweis dazu erscheint in Connect (MerchantOverview, Produkte-Seite).
+        if ($context->locationId === null || $context->locationId === '') {
+            return self::result('skipped', 0, 0, 0, 'Kein Shopify-Standort gewählt – Lagerabgleich pausiert. Bitte unter Einstellungen → Lagerbestand den Standort wählen.', []);
+        }
+
         $shopifyObject = $context->shopifyObject;
         $shopifyMatchField = $context->shopifyMatchField;
         $shopifyStockField = $context->shopifyStockField;
@@ -127,10 +134,22 @@ final class StockSyncRunner
         // could not be found.", live beobachtet). ProductComparisonService/
         // ProductImportService::findExistingProductId() filtern das schon
         // laenger -- hier fehlte es bisher, echter Bug.
-        $shopifyRecords = array_values(array_filter(
-            $objectCache->getCached($shopifyConnectionId, $shopifyObject->key),
-            static fn (array $record): bool => ($record['_status'] ?? 'active') !== 'orphaned'
-        ));
+        // Standortwechsel: Shopify-Datensaetze, die noch mit einem ANDEREN (oder ohne) Standort geladen
+        // wurden (_location_id, siehe ObjectCache::refresh()), tragen den Bestand des falschen Standorts.
+        // Bis zum naechsten Abruf werden sie nicht abgeglichen.
+        $locationScoped = $shopifyStockField->key === 'location_stock_quantity';
+        $staleLocation = 0;
+        $shopifyRecords = [];
+        foreach ($objectCache->getCached($shopifyConnectionId, $shopifyObject->key) as $record) {
+            if (($record['_status'] ?? 'active') === 'orphaned') {
+                continue;
+            }
+            if ($locationScoped && (string) ($record['_location_id'] ?? '') !== (string) $locationId) {
+                $staleLocation++;
+                continue;
+            }
+            $shopifyRecords[] = $record;
+        }
         $targetRecords = array_values(array_filter(
             $objectCache->getCached($targetConnectionId, $targetObject->key),
             static fn (array $record): bool => ($record['_status'] ?? 'active') !== 'orphaned'
@@ -148,7 +167,8 @@ final class StockSyncRunner
                 0,
                 0,
                 0,
-                'Noch keine Daten auf beiden Seiten -- Shopify: ' . count($shopifyRecords) . ', Ziel: ' . count($targetRecords) . ' Datensaetze.',
+                'Noch keine Daten auf beiden Seiten -- Shopify: ' . count($shopifyRecords) . ', Ziel: ' . count($targetRecords) . ' Datensaetze.'
+                    . ($staleLocation > 0 ? " {$staleLocation} Shopify-Produkte warten auf den Abruf mit dem gewählten Standort." : ''),
                 []
             );
         }
@@ -517,6 +537,9 @@ final class StockSyncRunner
         }
         if ($liveCorrected > 0) {
             $message .= " {$liveCorrected} nicht geschrieben, weil die Live-Kontrolle beide Seiten gleich zeigte (Zwischenspeicher war veraltet).";
+        }
+        if ($staleLocation > 0) {
+            $message .= " {$staleLocation} Shopify-Produkte nicht abgeglichen: noch nicht mit dem gewählten Standort geladen (folgt nach dem nächsten Abruf).";
         }
         if ($deferred > 0) {
             $message .= " {$deferred} weitere Abweichungen folgen im nächsten Lauf (max. " . self::MAX_LIVE_CHECKS_PER_RUN . ' je Lauf).';

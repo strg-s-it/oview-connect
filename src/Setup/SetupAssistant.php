@@ -110,7 +110,7 @@ final class SetupAssistant
         $compareLabels = ['title' => 'Produktname', 'sku' => 'SKU', 'barcode' => 'Barcode'];
         $direction = (string) ($s['stock_sync_direction'] ?? 'shopify_to_target');
         $locationName = $this->locationName($shop, $s['stock_primary_location_id'] ?? null);
-        $needsLocation = $direction === 'target_to_shopify';
+        $needsLocation = true; // Shopify-Bestand wird je Standort gelesen, in beide Richtungen
         $priceMode = $s['shopify_prices_include_tax'] ?? null;
         $invoiceOn = (int) ($s['invoice_creation_enabled'] ?? 0) === 1;
         $suppress = (int) ($s['invoice_suppress_and_adjust_stock'] ?? 0) === 1;
@@ -126,7 +126,7 @@ final class SetupAssistant
             $confirmed('comparison'), false, true, 'setup-comparison');
         $steps[] = $this->step('stock_direction', 'Wo pflegst du deinen Lagerbestand?',
             'Das führende System gibt den Bestand vor, das andere wird angepasst.'
-                . ($needsLocation ? ' Für das Schreiben nach Shopify braucht es einen Standort.' : ''),
+                . ' Abgeglichen wird der Bestand eines Shopify-Standorts.',
             ($direction === 'target_to_shopify' ? 'in ' . $targetName : 'in Shopify') . ($locationName !== null ? ' · Standort ' . $locationName : ($needsLocation ? ' · Standort fehlt' : '')),
             $confirmed('stock_direction') && (!$needsLocation || $locationName !== null), false, !$needsLocation || $locationName !== null, 'setup-stock');
         $steps[] = $this->step('stock_sync', 'Automatischen Lagerstandsabgleich aktivieren',

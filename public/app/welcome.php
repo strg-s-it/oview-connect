@@ -192,15 +192,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'wizar
                 $flashMessage = 'Bitte wähle, wo du deine Lagerbestände änderst.';
                 break;
             }
-            if ($lead === 'target') {
-                if (count($locations) === 1) {
-                    $location = $locations[0]['id'];
-                } elseif ($locations !== [] && !in_array($location, array_column($locations, 'id'), true)) {
-                    $flashMessage = 'Bitte wähle den Shopify-Standort.';
-                    break;
-                }
+            // Der Standort wird in BEIDE Richtungen gebraucht: Shopify liefert den Bestand
+            // je Standort, ohne Standort kennt oView den Shopify-Bestand nicht.
+            if (count($locations) === 1) {
+                $location = $locations[0]['id'];
+            } elseif ($locations !== [] && !in_array($location, array_column($locations, 'id'), true)) {
+                $flashMessage = 'Bitte wähle den Shopify-Standort.';
+                break;
             }
-            $wizard->remember($shop, ['lead' => $lead, 'location' => $lead === 'target' ? $location : '']);
+            $wizard->remember($shop, ['lead' => $lead, 'location' => $location]);
             $redirect($stepUrl($nextStepAfter('stock_lead')));
 
         case 'invoice':
@@ -492,26 +492,16 @@ require __DIR__ . '/_header.php';
             <?php echo $choice('lead', 'shopify', $answers['lead'] ?? null, 'S', 'In Shopify', $targetName . ' übernimmt die Bestände aus Shopify.'); ?>
         </div>
         <?php if (count($locations) > 1): ?>
-            <div id="wz-location" <?php echo ($answers['lead'] ?? null) === 'target' ? '' : 'hidden'; ?>>
+            <div id="wz-location">
                 <label class="form-label" for="location">Für welchen Shopify-Standort?</label>
-                <select id="location" name="location" class="form-select">
+                <select id="location" name="location" class="form-select" required>
                     <option value="">Bitte wählen</option>
                     <?php foreach ($locations as $location): ?>
                         <option value="<?php echo htmlspecialchars($location['id']); ?>" <?php echo ($answers['location'] ?? '') === $location['id'] ? 'selected' : ''; ?>><?php echo htmlspecialchars($location['name']); ?></option>
                     <?php endforeach; ?>
                 </select>
-                <div class="text-secondary small mt-1">Dein Shop hat <?php echo count($locations); ?> Standorte. Die Bestände aus <?php echo htmlspecialchars($targetName); ?> gelten für diesen.</div>
+                <div class="text-secondary small mt-1">Dein Shop hat <?php echo count($locations); ?> Standorte. Abgeglichen wird der Bestand dieses Standorts.</div>
             </div>
-            <script>
-                document.querySelectorAll('input[name="lead"]').forEach(function (radio) {
-                    radio.addEventListener('change', function () {
-                        var box = document.getElementById('wz-location');
-                        box.hidden = radio.value !== 'target';
-                        document.getElementById('location').required = radio.value === 'target';
-                    });
-                });
-                document.getElementById('location').required = !document.getElementById('wz-location').hidden;
-            </script>
         <?php endif; ?>
 
     <?php elseif ($step === 'invoice'): ?>

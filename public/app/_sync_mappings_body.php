@@ -391,6 +391,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_
         $flashMessage = 'Bitte eine gültige Richtung wählen.';
         $flashType = 'danger';
     } else {
+        $previousLocationStmt = $pdo->prepare('SELECT stock_primary_location_id FROM connect_shops WHERE shop = :shop');
+        $previousLocationStmt->execute(['shop' => $shop]);
+        $previousLocationId = (string) ($previousLocationStmt->fetchColumn() ?: '');
+
         $pdo->prepare(
             'UPDATE connect_shops
              SET stock_sync_direction = :direction, stock_primary_location_id = :location_id, stock_sync_enabled = :enabled
@@ -401,6 +405,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_
             'enabled' => $enabled,
             'shop' => $shop,
         ]);
+
+        // Standort geaendert: Shopify-Produkte sofort neu laden, damit der Bestand des neuen Standorts
+        // im Zwischenspeicher steht (bis dahin gleicht der Lagerabgleich die Shopify-Produkte nicht ab).
+        if ($primaryLocationId !== '' && $primaryLocationId !== $previousLocationId) {
+            \Connect\Sync\JobScheduler::dataJobsNowQuietly($pdo, $shop);
+        }
 
         // Aktivierung fuer den Scheduler (mapping_kind='stock_sync'), gemeinsam mit der Einrichtung
         (new \Connect\Setup\ShopActivations($pdo, $app->crypto, $app->config))->syncStockMapping($shop, $enabled === 1);

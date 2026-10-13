@@ -417,9 +417,84 @@ final class ProductImportService
             $objectCache->updateCachedFields($context->targetConnectionId, $context->targetObject->key, $targetExternalId, $seedRow);
         }
 
+        // Anfangsbestand: ein neu angelegter Artikel startet im Zielsystem mit 0 (helloCash kennt
+        // beim Anlegen keinen Bestand, nur Delta ueber change-stock). Nach dem Cache-Nachziehen,
+        // damit der Live-Refresh oben den neuen Bestand nicht ueberschreibt.
+        $stockInfo = null;
+        if ($targetExternalId !== null) {
+            $stockInfo = $this->writeInitialStock($shop, $context, $sourceRecord, $matchValue, $targetExternalId);
+            if ($stockInfo !== null && $stockInfo['written']) {
+                $objectCache->updateCachedFields($context->targetConnectionId, $context->targetObject->key, $targetExternalId, [$context->targetStockField->key => $stockInfo['quantity']]);
+            }
+        }
+
         $idSuffix = $targetExternalId !== null ? " (Ziel-ID: {$targetExternalId})" : '';
 
-        return ['success' => true, 'message' => "Neu angelegt{$idSuffix}." . ($priceInfo !== null ? ' ' . $priceInfo : '')];
+        return ['success' => true, 'message' => "Neu angelegt{$idSuffix}." . ($priceInfo !== null ? ' ' . $priceInfo : '') . ($stockInfo !== null ? ' ' . $stockInfo['message'] : '')];
+    }
+
+    /**
+     * Schreibt den Shopify-Bestand als Anfangsbestand in einen frisch angelegten Ziel-Artikel.
+     * Nur wenn Shopify den Bestand fuehrt (Richtung shopify_to_target) und ein Standort gewaehlt ist:
+     * fuehrt das Kassensystem, wuerde der Anfangsbestand 0 den Shopify-Bestand beim naechsten
+     * Lagerabgleich ueberschreiben -- dort wird nichts geschrieben. Ein neuer Artikel hat Bestand 0,
+     * das Delta ist daher der Shopify-Bestand selbst. Scheitert das Schreiben, bleibt der Import
+     * gelungen, der Lagerabgleich holt es nach.
+     *
+     * @param array<string, mixed> $sourceRecord Shopify-Datensatz
+     * @return array{written: bool, quantity: int, message: string}|null null = nichts zu tun
+     */
+    private function writeInitialStock(string $shop, ProductMatchContext $context, array $sourceRecord, string $matchValue, string $targetExternalId): ?array
+    {
+        if ($context->direction !== 'shopify_to_target' || $context->locationId === null || $context->locationId === '') {
+            return null;
+        }
+
+        $stockKey = $context->shopifyStockField->key;
+        if (!array_key_exists($stockKey, $sourceRecord) || $sourceRecord[$stockKey] === null || $sourceRecord[$stockKey] === '') {
+            return null;
+        }
+        // Standortbezogener Bestand eines Datensatzes, der noch mit einem anderen Standort geladen wurde: nicht verwenden
+        if ($stockKey === 'location_stock_quantity' && (string) ($sourceRecord['_location_id'] ?? '') !== (string) $context->locationId) {
+            return null;
+        }
+
+        $quantity = (int) $sourceRecord[$stockKey];
+        if ($quantity === 0) {
+            return null;
+        }
+
+        $targetIdentifierField = ObjectCache::requireIdentifierField($context->targetObject);
+
+        try {
+            $result = $context->targetConnector->write($context->targetObject->key, 'update', [
+                $targetIdentifierField->key => $targetExternalId,
+                'stock_change' => $quantity,
+            ]);
+        } catch (\Throwable $e) {
+            ActivityLog::log($this->pdo, $shop, null, $context->targetObject->key, 'stock_update', false, $e->getMessage(), $targetExternalId);
+
+            return ['written' => false, 'quantity' => $quantity, 'message' => 'Anfangsbestand konnte nicht gesetzt werden (' . $e->getMessage() . ') -- folgt mit dem nächsten Lagerabgleich.'];
+        }
+
+        ActivityLog::log(
+            $this->pdo,
+            $shop,
+            null,
+            $context->targetObject->key,
+            'stock_update',
+            $result->success,
+            $result->success ? "Anfangsbestand für \"{$matchValue}\": 0 -> {$quantity}." : $result->message,
+            $targetExternalId,
+            $result->requestBody,
+            $result->responseBody
+        );
+
+        if (!$result->success) {
+            return ['written' => false, 'quantity' => $quantity, 'message' => 'Anfangsbestand konnte nicht gesetzt werden (' . $result->message . ') -- folgt mit dem nächsten Lagerabgleich.'];
+        }
+
+        return ['written' => true, 'quantity' => $quantity, 'message' => "Bestand {$quantity} übernommen."];
     }
 
     /**

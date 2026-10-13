@@ -280,6 +280,22 @@ require __DIR__ . '/_header.php';
             </div>
         </div>
     <?php else: ?>
+        <?php if (!empty($report['location_missing'])): ?>
+            <div class="col-12">
+                <div class="alert alert-warning">
+                    Es ist kein Shopify-Standort gewählt – der Lagerabgleich ist pausiert, und die Shopify-Bestände sind unbekannt.
+                    Bitte unter Einstellungen → Lagerbestand den Standort wählen.
+                </div>
+            </div>
+        <?php endif; ?>
+        <?php if ((int) ($report['hidden_by_location'] ?? 0) > 0): ?>
+            <div class="col-12">
+                <div class="alert alert-warning">
+                    <?php echo (int) $report['hidden_by_location']; ?> Shopify-Produkte werden hier nicht angezeigt, weil sie am gewählten Standort nicht geführt werden.
+                    Prüfe unter Einstellungen → Lagerbestand, ob der richtige Shopify-Standort gewählt ist. Nach einer Änderung dauert es bis zum nächsten Abruf der Shopify-Produkte, bis die Liste stimmt.
+                </div>
+            </div>
+        <?php endif; ?>
         <?php
         // Altsystem-Pruefungen ("Probleme"): Datensaetze mit leerem oder
         // mehrfach vorkommendem Vergleichswert koennen nicht synchronisiert

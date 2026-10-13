@@ -79,6 +79,7 @@ final class ObjectCache
         $params = $this->withAgeWindow($connectionId, $object->key, $params);
         // Primaerer Standort des Shops (Migration 0061): siehe withLocationFilter().
         $params = $this->withLocationFilter($connectionId, $params);
+        $fetchedLocation = isset($params['locationId']) ? (string) $params['locationId'] : null;
         // Shop-Felder (Migration 0074): Metafield-Plaetze der Abfrage je Shop belegen.
         $shopFields = ShopFields::forConnection($this->pdo, $connectionId, $object->key);
         $params = ShopFields::paramsForConnection($this->pdo, $connectionId, $object->key, $params);
@@ -97,6 +98,9 @@ final class ObjectCache
         $count = 0;
         foreach ($connector->read($object->key, $params) as $row) {
             $row = ShopFields::applyValues($row, $shopFields);
+            if ($fetchedLocation !== null) {
+                $row['_location_id'] = $fetchedLocation; // siehe ProductComparisonService (Standort-Filter)
+            }
             if ($previous !== []) {
                 $old = $previous[(string) ($row[$identifierField->key] ?? '')] ?? null;
                 if ($old !== null) {
@@ -264,12 +268,17 @@ final class ObjectCache
         // Standort wie bei refresh() -- sonst fehlt beim Einzelabruf ein standortbezogener
         // Lagerbestand (location_stock_quantity, Migration 0061) und gilt als "nicht gefuehrt"
         $params = $this->withLocationFilter($connectionId, $params);
+        $fetchedLocation = isset($params['locationId']) ? (string) $params['locationId'] : null;
         $row = $connector->readOne($object->key, ShopFields::paramsForConnection($this->pdo, $connectionId, $object->key, $params));
         if ($row === null) {
             return false;
         }
+        $row = ShopFields::applyValues($row, $shopFields);
+        if ($fetchedLocation !== null) {
+            $row['_location_id'] = $fetchedLocation; // siehe ProductComparisonService (Standort-Filter)
+        }
 
-        return $this->upsertRecord($connectionId, $object->key, $identifierField->key, ShopFields::applyValues($row, $shopFields));
+        return $this->upsertRecord($connectionId, $object->key, $identifierField->key, $row);
     }
 
     /**
