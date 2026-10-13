@@ -194,9 +194,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'wizar
             }
             // Der Standort wird in BEIDE Richtungen gebraucht: Shopify liefert den Bestand
             // je Standort, ohne Standort kennt oView den Shopify-Bestand nicht.
+            if ($locations === []) {
+                // Direkt nach der Installation sind die Standorte noch nicht geladen -- nicht ohne Standort weiter
+                $flashMessage = 'Die Shopify-Standorte werden gerade geladen. Bitte gleich noch einmal auf „Weiter“ klicken.';
+                break;
+            }
             if (count($locations) === 1) {
                 $location = $locations[0]['id'];
-            } elseif ($locations !== [] && !in_array($location, array_column($locations, 'id'), true)) {
+            } elseif (!in_array($location, array_column($locations, 'id'), true)) {
                 $flashMessage = 'Bitte wähle den Shopify-Standort.';
                 break;
             }
@@ -491,7 +496,14 @@ require __DIR__ . '/_header.php';
             <?php echo $choice('lead', 'target', $answers['lead'] ?? null, htmlspecialchars(mb_substr($targetName, 0, 2)), 'In ' . $targetName, 'Shopify übernimmt die Bestände aus ' . $targetName . '.'); ?>
             <?php echo $choice('lead', 'shopify', $answers['lead'] ?? null, 'S', 'In Shopify', $targetName . ' übernimmt die Bestände aus Shopify.'); ?>
         </div>
-        <?php if (count($locations) > 1): ?>
+        <?php if ($locations === []): ?>
+            <div class="alert alert-info mb-0">
+                Die Standorte deines Shops werden gerade aus Shopify geladen. Das dauert nur einen Moment, danach kannst du hier den Standort wählen.
+            </div>
+            <script>setTimeout(function () { location.reload(); }, 6000);</script>
+        <?php elseif (count($locations) === 1): ?>
+            <div class="text-secondary small">Dein Shop hat einen Standort: <strong><?php echo htmlspecialchars($locations[0]['name']); ?></strong>. Abgeglichen wird dessen Bestand.</div>
+        <?php else: ?>
             <div id="wz-location">
                 <label class="form-label" for="location">Für welchen Shopify-Standort?</label>
                 <select id="location" name="location" class="form-select" required>
@@ -549,7 +561,7 @@ require __DIR__ . '/_header.php';
     <?php elseif ($step === 'done'): ?>
         <?php
         $lead = ($answers['lead'] ?? 'target') === 'shopify' ? 'shopify' : 'target';
-        $locationName = '';
+        $locationName = ' · Standort fehlt';
         foreach ($wizard->shopifyLocations($shop) as $location) {
             if ($location['id'] === ($answers['location'] ?? '')) {
                 $locationName = ' · ' . $location['name'];
@@ -558,7 +570,7 @@ require __DIR__ . '/_header.php';
         $rows = [
             ['Verbunden mit', $targetName, 'connect'],
             ['Produkte erkennen an', SetupWizard::COMPARE_LABELS[$answers['compare'] ?? 'sku'] ?? 'Artikelnummer (SKU)', 'compare'],
-            ['Lagerbestand', ($answers['stock'] ?? 'no') === 'yes' ? ($lead === 'target' ? 'wird in ' . $targetName . ' gepflegt' . $locationName : 'wird in Shopify gepflegt') : 'kein Abgleich', 'stock'],
+            ['Lagerbestand', ($answers['stock'] ?? 'no') === 'yes' ? ('wird in ' . ($lead === 'target' ? $targetName : 'Shopify') . ' gepflegt' . $locationName) : 'kein Abgleich', 'stock'],
             ['Bezahlte Bestellung', ['invoice' => 'Rechnung in ' . $targetName . (!empty($answers['mail']) ? ' + E-Mail an Kunden' : ''), 'stockonly' => 'nur Bestand abziehen', 'none' => 'nichts'][$answers['invoice'] ?? 'none'] ?? 'nichts', 'invoice'],
         ];
         if (($answers['invoice'] ?? null) === 'invoice') {
