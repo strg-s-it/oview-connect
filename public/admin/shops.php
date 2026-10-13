@@ -234,6 +234,17 @@ $shops = $pdo->query(
      ORDER BY s.last_seen_at DESC'
 )->fetchAll();
 
+// Abo je Shop (Migration 0079): plan = Name-Schluessel, plan_status = none -> Shopify meldet kein
+// aktives Abo, NULL = noch nie abgefragt. Fehlt die Migration, bleibt die Spalte leer.
+$plansByShop = [];
+try {
+    foreach ($pdo->query('SELECT shop, plan, plan_status, plan_checked_at FROM connect_shops')->fetchAll() as $planRow) {
+        $plansByShop[(string) $planRow['shop']] = $planRow;
+    }
+} catch (\PDOException) {
+    // Migration 0079 fehlt
+}
+
 // Alle Connections gruppiert nach Shop, fuer die Ziel-Connection-Auswahl
 // unten (ein Shop hat meist nur eine Handvoll Connections, kein Problem,
 // das komplett im Speicher zu gruppieren statt pro Zeile nachzuladen).
@@ -271,6 +282,7 @@ require dirname(__DIR__) . '/app/_header.php';
                             <tr>
                                 <th>Shop</th>
                                 <th>Connections</th>
+                                <th>Abo</th>
                                 <th>Zuständig</th>
                                 <th>Ziel-System (Lagerbestand/Aufträge)</th>
                                 <th>Zuletzt gesehen</th>
@@ -282,6 +294,19 @@ require dirname(__DIR__) . '/app/_header.php';
                                 <tr>
                                     <td><?php echo htmlspecialchars($row['shop']); ?></td>
                                     <td><?php echo (int) $row['connection_count']; ?></td>
+                                    <td class="small">
+                                        <?php
+                                        $planRow = $plansByShop[$row['shop']] ?? null;
+                                        if ($planRow === null || $planRow['plan_status'] === null): ?>
+                                            <span class="text-secondary">unbekannt</span>
+                                        <?php elseif ($planRow['plan_status'] === 'none'): ?>
+                                            <?php $sinceDays = (int) floor((time() - (int) strtotime((string) $row['first_seen_at'])) / 86400); ?>
+                                            <span class="badge bg-orange-lt">kein Abo</span>
+                                            <div class="text-secondary">seit <?php echo $sinceDays; ?> Tagen dabei</div>
+                                        <?php else: ?>
+                                            <?php echo htmlspecialchars($planRow['plan'] !== null && isset(\Connect\Billing\Plans::PLANS[(string) $planRow['plan']]) ? \Connect\Billing\Plans::PLANS[(string) $planRow['plan']]['name'] : 'aktiv (Sondervereinbarung)'); ?>
+                                        <?php endif; ?>
+                                    </td>
                                     <td>
                                         <?php if (!$hasLiveColumn): ?>
                                             <span class="badge bg-yellow-lt" title="php connect/bin/install.php ausführen">Migration 0050 fehlt</span>

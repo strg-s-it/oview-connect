@@ -60,8 +60,11 @@ require __DIR__ . '/_header.php';
 ?>
 
 <?php if ($confirmationUrl !== null): ?>
-    <div class="alert alert-info">Du wirst zu Shopify weitergeleitet, um das Abo zu bestätigen …
-        <a href="<?php echo htmlspecialchars($confirmationUrl); ?>" target="_top">Falls nichts passiert, hier klicken.</a></div>
+    <div class="alert alert-info d-flex flex-wrap align-items-center gap-3">
+        <div class="flex-fill">Du wirst zu Shopify weitergeleitet, um das Abo zu bestätigen …<br>
+            <span class="small">Passiert nichts (z. B. wegen eines Weiterleitungs- oder Pop-up-Blockers), klicke auf den Knopf. Erst nach der Bestätigung in Shopify ist dein Abo aktiv.</span></div>
+        <a href="<?php echo htmlspecialchars($confirmationUrl); ?>" target="_top" class="btn btn-primary">Abo in Shopify bestätigen</a>
+    </div>
     <script>
         (function () {
             var url = <?php echo json_encode($confirmationUrl); ?>;

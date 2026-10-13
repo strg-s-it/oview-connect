@@ -66,6 +66,9 @@ $setupLink = static function (array $step) use ($shop, $previewSuffix): string {
         $hasTarget = !str_starts_with($step['value'], 'nicht');
         return ($hasTarget ? 'connections.php' : 'sync_mappings.php') . '?shop=' . urlencode($shop) . $previewSuffix;
     }
+    if ($step['key'] === 'plan') {
+        return 'billing.php?shop=' . urlencode($shop) . $previewSuffix;
+    }
 
     return 'sync_mappings.php?shop=' . urlencode($shop) . $previewSuffix . '#' . $step['anchor'];
 };
@@ -85,6 +88,17 @@ $pageTitle = $isAdmin ? 'Dashboard — ' . $shop : 'Übersicht';
     $app->config->optional('CONNECT_SHOPIFY_API_KEY'),
     $app->config->optional('CONNECT_SHOPIFY_API_SECRET')
 )), $app->config))->refreshIfStale($shop);
+
+// Kein Abo bestaetigt? (Shopify meldet sicher kein aktives Abo -- unbekannt zaehlt nicht.) Nur ein
+// Hinweis, keine Sperre: ohne Abo funktioniert alles weiter.
+$noPlan = false;
+try {
+    $planStmt = $pdo->prepare('SELECT plan_status FROM connect_shops WHERE shop = :shop');
+    $planStmt->execute(['shop' => $shop]);
+    $noPlan = $planStmt->fetchColumn() === 'none';
+} catch (\PDOException) {
+    // Migration 0079 fehlt
+}
 
 // Merchant-Uebersicht (Connect\Setup\MerchantOverview): Ampel, Probleme, Kacheln, Verlauf
 $overview = (new \Connect\Setup\MerchantOverview($pdo))->build($shop);
@@ -177,6 +191,12 @@ $agoText = static function (?int $minutes): string {
             </div>
         </div>
     <?php endforeach; ?>
+    <?php if ($noPlan): ?>
+        <div class="ov-banner warn"><span class="ov-state"><?php echo \Connect\Ui\Icon::svg('alert-triangle', 22); ?></span><div class="flex-fill">
+            <div class="ov-big">Dein Abo ist noch nicht bestätigt</div>
+            <div class="text-secondary">Bitte wähle ein Abo und bestätige es in Shopify – das erste Abo kannst du <?php echo \Connect\Billing\Plans::TRIAL_DAYS; ?> Tage kostenlos testen. Falls die Bestätigungsseite nicht erscheint, erlaube Weiterleitungen bzw. Pop-ups für Shopify oder antworte auf unsere Mail.</div>
+        </div><a href="<?php echo htmlspecialchars($link('billing.php')); ?>" class="btn btn-primary">Abo auswählen</a></div>
+    <?php endif; ?>
     <?php if ($initialLoad['open'] !== []): ?>
         <?php
         // "HelloCash: Mitarbeiter" -> "Mitarbeiter (HelloCash)"

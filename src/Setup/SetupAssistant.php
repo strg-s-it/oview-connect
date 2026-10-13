@@ -153,6 +153,13 @@ final class SetupAssistant
             'Optional: neue Artikel aus ' . $targetName . ' als Variante eines bestehenden Shopify-Produkts importieren.',
             ($s['variant_comparison_key'] ?? null) !== null ? ($compareLabels[(string) $s['variant_comparison_key']] ?? (string) $s['variant_comparison_key']) : 'aus',
             ($s['variant_comparison_key'] ?? null) !== null || $confirmed('variants'), true, true, 'setup-variants');
+        // Abo: nur "nicht erledigt", wenn Shopify sicher kein aktives Abo meldet (plan_status = none).
+        // Unbekannt (noch nie abgefragt, Migration 0079 fehlt) zaehlt als erledigt -- kein falscher Alarm.
+        $hasPlan = ($s['plan_status'] ?? null) !== 'none';
+        $steps[] = $this->step('plan', 'Abo bestätigen',
+            'Das erste Abo kannst du ' . \Connect\Billing\Plans::TRIAL_DAYS . ' Tage kostenlos testen. Die Bestätigung erfolgt in Shopify.',
+            $hasPlan ? 'aktiv' : 'noch nicht bestätigt',
+            $hasPlan, true, false, 'setup-plan');
 
         $number = 0;
         $required = 0;
