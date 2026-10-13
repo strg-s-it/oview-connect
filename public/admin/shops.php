@@ -94,12 +94,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'remov
         // global (kein "shop"-Bezug mehr) und koennen von anderen Shops
         // mitgenutzt werden -- ein einzelner Shop darf sie beim Entfernen
         // nicht fuer alle anderen mit wegreissen.
+        // Aktivierungen zuerst ausdruecklich (wie PrivacyService::eraseShop), nicht nur ueber die Connections
+        $pdo->prepare('DELETE FROM connect_sync_mappings WHERE shop = :shop')->execute(['shop' => $shopToRemove]);
         $pdo->prepare('DELETE FROM connect_connections WHERE shop = :shop')->execute(['shop' => $shopToRemove]);
         $pdo->prepare('DELETE FROM connect_webhook_events WHERE shop = :shop')->execute(['shop' => $shopToRemove]);
         // Zustimmungen bleiben als Nachweis (3 Jahre, Migration 0077), nur markiert
         \Connect\Setup\LegalTexts::markShopDeleted($pdo, $shopToRemove);
-        // Tabellen neuerer Migrationen (0073/0074) -- fehlen sie noch, nur ueberspringen
-        foreach (['connect_product_visibility_log', 'connect_shop_fields'] as $shopTable) {
+        // Protokolle und Betriebsdaten dieses Shops (vorher blieben sie stehen und tauchten nach einer
+        // Neuinstallation wieder auf). Bewusst NICHT geloescht: Zustimmungen/Datenschutz-Protokoll (Nachweis),
+        // Nachrichten-Abmeldungen (Opt-out gilt weiter), Wuensche, Pruefprotokolle der alten Welt.
+        // Tabellen neuerer Migrationen -- fehlen sie noch, nur ueberspringen (Kinder loeschen per FK mit).
+        foreach ([
+            'connect_activity_log', 'connect_stock_sync_log', 'connect_stock_sync_runs', 'connect_product_checks',
+            'connect_low_stock_items', 'connect_batch_changes', 'connect_price_sync_exclusions', 'connect_bundles',
+            'connect_shop_attachments', 'connect_prepared_credentials', 'connect_report_mails',
+            'connect_product_visibility_log', 'connect_shop_fields',
+        ] as $shopTable) {
             try {
                 $pdo->prepare("DELETE FROM {$shopTable} WHERE shop = :shop")->execute(['shop' => $shopToRemove]);
             } catch (\PDOException) {
