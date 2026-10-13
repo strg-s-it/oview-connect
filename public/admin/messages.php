@@ -410,8 +410,10 @@ require dirname(__DIR__) . '/app/_header.php';
                     <label class="form-check mb-0"><input type="checkbox" class="form-check-input" name="stock_paused" value="1" <?php echo $filter['stock_paused'] ? 'checked' : ''; ?>> <span class="form-check-label">nur Shops mit angehaltenem Lagerabgleich</span></label>
                     <div><button type="submit" name="action" value="save" class="btn btn-sm">Filter anwenden</button></div>
                 </div>
-                <div class="card-body border-top pt-2 pb-2 small">
-                    <strong id="msg-count-selected"><?php echo count($recipients); ?></strong> Shops ausgewählt, davon <strong class="msg-count-email"><?php echo $withEmail; ?></strong> mit Mail-Adresse<?php echo $message['kind'] === 'info' ? ' (ohne Abgemeldete)' : ''; ?>. Häkchen entfernen, um einen Shop auszunehmen.
+                <div class="card-body border-top pt-2 pb-2 small d-flex flex-wrap gap-2 align-items-center">
+                    <span class="me-auto"><strong id="msg-count-selected"><?php echo count($recipients); ?></strong> Shops ausgewählt, davon <strong class="msg-count-email"><?php echo $withEmail; ?></strong> mit Mail-Adresse<?php echo $message['kind'] === 'info' ? ' (ohne Abgemeldete)' : ''; ?>. Häkchen entfernen, um einen Shop auszunehmen.</span>
+                    <button type="button" class="btn btn-sm" onclick="msgSelectAll(true)">Alle auswählen</button>
+                    <button type="button" class="btn btn-sm" onclick="msgSelectAll(false)">Alle abwählen</button>
                 </div>
                 <div class="table-responsive" style="max-height: 420px; overflow-y: auto;">
                     <table class="table table-vcenter card-table table-sm">
@@ -421,7 +423,7 @@ require dirname(__DIR__) . '/app/_header.php';
                                 <?php $excluded = in_array($m['shop'], $filter['exclude'], true); ?>
                                 <tr class="<?php echo $excluded ? 'text-secondary' : ''; ?>">
                                     <td>
-                                        <input type="checkbox" class="form-check-input msg-include" data-mail="<?php echo $m['email'] !== null && !($message['kind'] === 'info' && $m['optout']) ? '1' : '0'; ?>" <?php echo $excluded ? '' : 'checked'; ?> onchange="var h=document.getElementById('ex-<?php echo $e(md5($m['shop'])); ?>'); h.disabled=this.checked; msgRecount();" aria-label="<?php echo $e($m['shop']); ?> einbeziehen">
+                                        <input type="checkbox" class="form-check-input msg-include" data-exclude="ex-<?php echo $e(md5($m['shop'])); ?>" data-mail="<?php echo $m['email'] !== null && !($message['kind'] === 'info' && $m['optout']) ? '1' : '0'; ?>" <?php echo $excluded ? '' : 'checked'; ?> onchange="document.getElementById(this.dataset.exclude).disabled=this.checked; msgRecount();" aria-label="<?php echo $e($m['shop']); ?> einbeziehen">
                                         <input type="hidden" id="ex-<?php echo $e(md5($m['shop'])); ?>" name="exclude[]" value="<?php echo $e($m['shop']); ?>" <?php echo $excluded ? '' : 'disabled'; ?>>
                                     </td>
                                     <td><?php echo $e($m['shop']); ?><?php echo $m['company'] ? '<div class="small text-secondary">' . $e($m['company']) . '</div>' : ''; ?></td>
@@ -472,6 +474,14 @@ require dirname(__DIR__) . '/app/_header.php';
             });
             document.getElementById('msg-count-selected').textContent = selected;
             document.querySelectorAll('.msg-count-email').forEach(function (el) { el.textContent = withMail; });
+        }
+        // Alle gefilterten Shops ein- bzw. ausschliessen (wirkt beim naechsten Speichern/Senden)
+        function msgSelectAll(state) {
+            document.querySelectorAll('.msg-include').forEach(function (box) {
+                box.checked = state;
+                document.getElementById(box.dataset.exclude).disabled = state;
+            });
+            msgRecount();
         }
     </script>
 <?php endif; ?>

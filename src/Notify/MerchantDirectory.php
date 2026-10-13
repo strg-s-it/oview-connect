@@ -23,6 +23,9 @@ use PDO;
  * stock_paused, optout, token (ok|missing|unknown: helloCash-Token mit Zugriff fuer API v2, siehe
  * Connect\Setup\TargetAccessCheck -- vorab hinterlegt, an der Connection geprueft oder, bei Shops
  * der alten Welt, deren Token schon v2-tauglich: token_note, token_checked_at, Migration 0094).
+ * Nur bei Shops der alten Welt (sonst null): subscription (aktives Abo laut Live-Pruefung, '' =
+ * keines, Migration 0098), charge_active (Abo laut oview_stores), has_binding (hellocash_binding).
+ * Shops nur noch in hellocash_binding fehlen in all() -- siehe bindingOnlyShops() (Aufraeumen).
  */
 final class MerchantDirectory
 {
@@ -36,6 +39,12 @@ final class MerchantDirectory
     /** @var array<string, string> helloCash-Token der alten Welt je Shop (hellocash_binding, nur fuer die Pruefung, nie in all()) */
     private array $legacyHelloCashTokens = [];
 
+    /** @var array<string, true>|null Shops mit Zeile in hellocash_binding (null = nicht lesbar) */
+    private ?array $legacyBindings = null;
+
+    /** @var list<string> Shops nur in hellocash_binding -- weder in oview_stores noch in Connect (nach all()) */
+    private array $bindingOnly = [];
+
     public function __construct(private readonly PDO $pdo, private readonly Config $config)
     {
     }
@@ -44,6 +53,23 @@ final class MerchantDirectory
     public function legacyError(): ?string
     {
         return $this->legacyError;
+    }
+
+    /**
+     * Shops, die in der alten Welt nur noch in hellocash_binding stehen (kein oview_stores, nicht in
+     * Connect) -- ohne Shopify-Token, also ohne nutzbares Konto. Vorher all() aufrufen.
+     *
+     * @return list<string>
+     */
+    public function bindingOnlyShops(): array
+    {
+        return $this->bindingOnly;
+    }
+
+    /** false = hellocash_binding nicht lesbar (dann fehlen bindingOnlyShops() und has_binding). Vorher all() aufrufen. */
+    public function legacyBindingsReadable(): bool
+    {
+        return $this->legacyBindings !== null;
     }
 
     /**
@@ -59,6 +85,7 @@ final class MerchantDirectory
         $notifier = new Notifier($this->pdo, $this->config);
 
         $merchants = [];
+        $connectShops = [];
         foreach ($this->pdo->query('SELECT * FROM connect_shops ORDER BY shop')->fetchAll() as $s) {
             $shop = (string) $s['shop'];
             $settings = $notifier->settings($shop);
@@ -108,9 +135,23 @@ final class MerchantDirectory
                 'token_checked_at' => null,
                 'scopes_checked_at' => $shopify['checked_at'] ?? null,
                 'scopes_error' => null,
+                'subscription' => null,
+                'charge_active' => null,
+                'has_binding' => null,
             ];
             unset($legacy[$shop]);
+            $connectShops[$shop] = true;
         }
+
+        // Reste nur in hellocash_binding (z.B. frueher deinstalliert, Zeile in oview_stores weg)
+        $this->bindingOnly = [];
+        foreach (array_keys($this->legacyBindings ?? []) as $bindingShop) {
+            $bindingShop = (string) $bindingShop;
+            if (!isset($legacy[$bindingShop]) && !isset($connectShops[$bindingShop])) {
+                $this->bindingOnly[] = $bindingShop;
+            }
+        }
+        sort($this->bindingOnly);
 
         $helloCashChecks = $this->legacyHelloCashChecks();
         foreach ($legacy as $shop => $row) {
@@ -139,6 +180,9 @@ final class MerchantDirectory
                 'token_checked_at' => $tokenCheckedAt,
                 'scopes_checked_at' => $live['checked_at'] ?? null,
                 'scopes_error' => $live['error'] ?? null,
+                'subscription' => $live['subscription'] ?? null,
+                'charge_active' => $row['charge_active'],
+                'has_binding' => $this->legacyBindings !== null ? isset($this->legacyBindings[$shop]) : null,
             ];
         }
 
@@ -211,10 +255,11 @@ final class MerchantDirectory
     /**
      * Shops der alten Welt (oview_stores), je Shop die neueste Zeile.
      *
-     * @return array<string, array{email: ?string, name: ?string, plan: ?string, charge_name: string, granted: ?list<string>, installed: ?string}>
+     * @return array<string, array{email: ?string, name: ?string, plan: ?string, charge_name: string, granted: ?list<string>, installed: ?string, charge_active: bool}>
      */
     private function legacyStores(): array
     {
+        $this->legacyBindings = null;
         if (!LegacyBridge::isConfigured($this->config)) {
             $this->legacyError = 'LEGACY_DB_* fehlt in connect/.env – Shops der alten Welt können nicht gelesen werden.';
 
@@ -266,22 +311,29 @@ final class MerchantDirectory
                 'charge_name' => $active ? (string) ($row['charge_name'] ?? '') : '',
                 'granted' => $granted,
                 'installed' => !empty($row['install_date']) ? substr((string) $row['install_date'], 0, 10) : null,
+                'charge_active' => $active,
             ];
         }
 
         // helloCash-Token je Shop (fuer die v2-Pruefung, Migration 0094) -- eigener Versuch, damit
         // die Liste auch ohne Leserecht auf hellocash_binding erscheint
         try {
+            $bindings = [];
             foreach ($legacyPdo->query('SELECT shop, token FROM hellocash_binding')->fetchAll() as $row) {
                 $bindingShop = (string) $row['shop'];
                 $bindingShop = str_contains($bindingShop, '.') ? substr($bindingShop, 0, (int) strpos($bindingShop, '.')) : $bindingShop;
                 $token = trim((string) ($row['token'] ?? ''));
+                if ($bindingShop !== '') {
+                    $bindings[$bindingShop] = true;
+                }
                 if ($bindingShop !== '' && $token !== '') {
                     $this->legacyHelloCashTokens[$bindingShop] = $token;
                 }
             }
+            $this->legacyBindings = $bindings;
         } catch (\Throwable) {
             $this->legacyHelloCashTokens = [];
+            $this->legacyBindings = null;
         }
 
         return $stores;
@@ -389,9 +441,20 @@ final class MerchantDirectory
      */
     public function checkLegacyScopes(string $shop, \Connect\Http\HttpClient $http): ?string
     {
+        return $this->checkLegacyShop($shop, $http)['error'];
+    }
+
+    /**
+     * Wie checkLegacyScopes, zusaetzlich das aktive Abo laut Shopify (Migration 0098).
+     *
+     * @return array{error: ?string, subscription: ?string} subscription: Name, '' = kein aktives Abo, null = unbekannt
+     */
+    public function checkLegacyShop(string $shop, \Connect\Http\HttpClient $http): array
+    {
         $token = $this->legacyTokens[$shop] ?? null;
         $granted = null;
         $error = null;
+        $subscription = null;
         if ($token === null) {
             $error = 'kein Shopify-Token in der alten Welt';
         } elseif (preg_match('/^[a-z0-9][a-z0-9\-]*$/i', $shop) !== 1) {
@@ -406,6 +469,7 @@ final class MerchantDirectory
                             $granted[] = (string) $scope['handle'];
                         }
                     }
+                    $subscription = $this->legacySubscription($shop, $token, $http);
                 } else {
                     $error = 'Shopify HTTP ' . $response->statusCode . ($response->statusCode === 401 ? ' (Token ungültig – App deinstalliert?)' : '');
                 }
@@ -413,24 +477,73 @@ final class MerchantDirectory
                 $error = mb_substr($e->getMessage(), 0, 250);
             }
         }
-        $this->pdo->prepare(
-            'INSERT INTO connect_legacy_scope_checks (shop, granted, error, checked_at) VALUES (:shop, :granted, :error, CURRENT_TIMESTAMP)
-             ON DUPLICATE KEY UPDATE granted = VALUES(granted), error = VALUES(error), checked_at = CURRENT_TIMESTAMP'
-        )->execute(['shop' => $shop, 'granted' => $granted !== null ? json_encode($granted) : null, 'error' => $error]);
+        $params = ['shop' => $shop, 'granted' => $granted !== null ? json_encode($granted) : null, 'error' => $error];
+        try {
+            $this->pdo->prepare(
+                'INSERT INTO connect_legacy_scope_checks (shop, granted, error, subscription, checked_at) VALUES (:shop, :granted, :error, :subscription, CURRENT_TIMESTAMP)
+                 ON DUPLICATE KEY UPDATE granted = VALUES(granted), error = VALUES(error), subscription = VALUES(subscription), checked_at = CURRENT_TIMESTAMP'
+            )->execute($params + ['subscription' => $subscription !== null ? mb_substr($subscription, 0, 255) : null]);
+        } catch (\PDOException) {
+            // Migration 0098 fehlt -- ohne Abo merken
+            $this->pdo->prepare(
+                'INSERT INTO connect_legacy_scope_checks (shop, granted, error, checked_at) VALUES (:shop, :granted, :error, CURRENT_TIMESTAMP)
+                 ON DUPLICATE KEY UPDATE granted = VALUES(granted), error = VALUES(error), checked_at = CURRENT_TIMESTAMP'
+            )->execute($params);
+        }
 
-        return $error;
+        return ['error' => $error, 'subscription' => $subscription];
     }
 
-    /** @return array<string, array{granted: ?list<string>, error: ?string, checked_at: string}> */
+    /**
+     * Aktives App-Abo eines Shops der alten Welt (GraphQL, nur lesend). Umfasst auch die per REST
+     * angelegten recurring_application_charges der alten Welt.
+     *
+     * @return string|null Name des Abos, '' = keines aktiv, null = nicht pruefbar
+     */
+    private function legacySubscription(string $shop, string $token, \Connect\Http\HttpClient $http): ?string
+    {
+        try {
+            $response = $http->request(
+                'POST',
+                'https://' . $shop . '.myshopify.com/admin/api/' . $this->config->optional('CONNECT_SHOPIFY_API_VERSION', '2026-07') . '/graphql.json',
+                ['X-Shopify-Access-Token' => $token, 'Content-Type' => 'application/json'],
+                (string) json_encode(['query' => '{ currentAppInstallation { activeSubscriptions { name status test } } }'])
+            );
+        } catch (\Throwable) {
+            return null;
+        }
+        $data = json_decode($response->body, true);
+        $list = is_array($data) ? ($data['data']['currentAppInstallation']['activeSubscriptions'] ?? null) : null;
+        if (!$response->isSuccess() || !is_array($list)) {
+            return null;
+        }
+        foreach ($list as $sub) {
+            if (is_array($sub) && strtoupper((string) ($sub['status'] ?? '')) === 'ACTIVE') {
+                $name = trim((string) ($sub['name'] ?? ''));
+
+                return ($name !== '' ? $name : 'aktiv') . (!empty($sub['test']) ? ' (Test)' : '');
+            }
+        }
+
+        return '';
+    }
+
+    /** @return array<string, array{granted: ?list<string>, error: ?string, subscription: ?string, checked_at: string}> */
     private function legacyScopeChecks(): array
     {
         try {
+            try {
+                $rows = $this->pdo->query('SELECT shop, granted, error, subscription, checked_at FROM connect_legacy_scope_checks')->fetchAll();
+            } catch (\PDOException) {
+                $rows = $this->pdo->query('SELECT shop, granted, error, checked_at FROM connect_legacy_scope_checks')->fetchAll(); // Migration 0098 fehlt
+            }
             $out = [];
-            foreach ($this->pdo->query('SELECT shop, granted, error, checked_at FROM connect_legacy_scope_checks')->fetchAll() as $row) {
+            foreach ($rows as $row) {
                 $granted = json_decode((string) ($row['granted'] ?? ''), true);
                 $out[(string) $row['shop']] = [
                     'granted' => is_array($granted) ? array_values(array_map('strval', $granted)) : null,
                     'error' => $row['error'] !== null ? (string) $row['error'] : null,
+                    'subscription' => isset($row['subscription']) ? (string) $row['subscription'] : null,
                     'checked_at' => (string) $row['checked_at'],
                 ];
             }
