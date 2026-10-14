@@ -657,7 +657,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_
     $targetConnectionIdForAutoImport = $targetConnectionIdForAutoImportStmt->fetchColumn();
 
     if ($autoImportEnabled === 1 && $targetConnectionIdForAutoImport === false) {
-        $flashMessage .= ' (Achtung: kein Zielsystem verbunden -- bitte oben unter "Vergleichswert & Zielsystem" zuerst eine Connection als Ziel wählen, der automatische Import kann sonst nicht auslösen.)';
+        $flashMessage .= ' (Achtung: keine Software verbunden -- bitte zuerst eine Connection als Ziel wählen, der automatische Import kann sonst nicht auslösen.)';
         $flashType = 'danger';
     } else {
         $existingAutoImportMappingStmt = $pdo->prepare(
@@ -1282,7 +1282,7 @@ require __DIR__ . '/_header.php';
                 </div>
                 <div class="card-body">
                     <p class="text-secondary">
-                        Legt fehlende Produkte automatisch im Zielsystem an (Shopify → Zielsystem, z. B. HelloCash) --
+                        Legt fehlende Produkte automatisch in <?php echo htmlspecialchars($targetName); ?> an (Shopify → <?php echo htmlspecialchars($targetName); ?>) --
                         dieselbe Logik wie der „Importieren"-Button auf der Merchant-Seite „Produkte", nur ohne
                         manuellen Klick. Der Merchant kann das nicht selbst umschalten -- bewusst eine Admin-
                         Entscheidung je Shop, bei Bedarf zu aktivieren.
@@ -1292,9 +1292,9 @@ require __DIR__ . '/_header.php';
                         <div class="col-12">
                             <label class="form-check">
                                 <input type="checkbox" name="auto_import_missing_to_target" class="form-check-input" <?php echo ((int) $shopSettings['auto_import_missing_to_target']) === 1 ? 'checked' : ''; ?>>
-                                <span class="form-check-label">Fehlende Produkte automatisch im Zielsystem anlegen</span>
+                                <span class="form-check-label">Fehlende Produkte automatisch in <?php echo htmlspecialchars($targetName); ?> anlegen</span>
                             </label>
-                            <small class="text-secondary d-block">Braucht ein gewähltes Zielsystem (siehe unten „Vergleichswert &amp; Zielsystem“, in der Merchant-Vorschau sichtbar). Läuft im Hintergrund, max. 20 Produkte pro Lauf.</small>
+                            <small class="text-secondary d-block">Braucht eine verbundene Software (siehe Einstellungen in der Merchant-Vorschau). Läuft im Hintergrund, max. 20 Produkte pro Lauf.</small>
                         </div>
                         <?php if (count($shopifyProductFieldsForFilter) > 0): ?>
                             <div class="col-12 mt-2">
@@ -1358,7 +1358,7 @@ require __DIR__ . '/_header.php';
                             <div class="col-12">
                                 <label class="form-check">
                                     <input type="checkbox" name="visibility_only_matched" class="form-check-input" <?php echo ((int) $visibilitySettings['visibility_only_matched']) === 1 ? 'checked' : ''; ?>>
-                                    <span class="form-check-label">Nur Produkte, die im Zielsystem zugeordnet sind (Vergleichswert)</span>
+                                    <span class="form-check-label">Nur Produkte, die in <?php echo htmlspecialchars($targetName); ?> zugeordnet sind (Vergleichswert)</span>
                                 </label>
                             </div>
                             <div class="col-12">

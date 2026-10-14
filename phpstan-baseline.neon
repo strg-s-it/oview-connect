@@ -163,42 +163,6 @@ parameters:
 			path: public/app/_product_check_body.php
 
 		-
-			message: '#^Comparison operation "\>" between 0 and 0 is always false\.$#'
-			identifier: greater.alwaysFalse
-			count: 1
-			path: public/app/_products_body.php
-
-		-
-			message: '#^Empty array passed to foreach\.$#'
-			identifier: foreach.emptyArray
-			count: 2
-			path: public/app/_products_body.php
-
-		-
-			message: '#^Offset ''buffer'' does not exist on array\{status\: ''success'', message\: string\|null, comparisonKey\: string\|null, rows\: array\<int, array\{match_value\: string\|null, label\: string\|null, shopify_quantity\: int\|null, target_quantity\: int\|null, status\: string, sku\: string\|null, barcode\: string\|null, price\: string\|null, \.\.\.\}\>\}\.$#'
-			identifier: offsetAccess.notFound
-			count: 1
-			path: public/app/_products_body.php
-
-		-
-			message: '#^Offset ''buffer'' on array\{status\: ''success'', message\: string\|null, comparisonKey\: string\|null, rows\: array\<int, array\{match_value\: string\|null, label\: string\|null, shopify_quantity\: int\|null, target_quantity\: int\|null, status\: string, sku\: string\|null, barcode\: string\|null, price\: string\|null, \.\.\.\}\>\} on left side of \?\? does not exist\.$#'
-			identifier: nullCoalesce.offset
-			count: 1
-			path: public/app/_products_body.php
-
-		-
-			message: '#^Offset ''flags'' does not exist on array\{match_value\: string\|null, label\: string\|null, shopify_quantity\: int\|null, target_quantity\: int\|null, status\: string, sku\: string\|null, barcode\: string\|null, price\: string\|null, \.\.\.\}\.$#'
-			identifier: offsetAccess.notFound
-			count: 2
-			path: public/app/_products_body.php
-
-		-
-			message: '#^Offset ''problems'' on array\{status\: string, message\: string\|null, comparisonKey\: string\|null, rows\: array\<int, array\{match_value\: string\|null, label\: string\|null, shopify_quantity\: int\|null, target_quantity\: int\|null, status\: string, sku\: string\|null, barcode\: string\|null, price\: string\|null, \.\.\.\}\>\} on left side of \?\? does not exist\.$#'
-			identifier: nullCoalesce.offset
-			count: 1
-			path: public/app/_products_body.php
-
-		-
 			message: '#^Variable \$app might not be defined\.$#'
 			identifier: variable.undefined
 			count: 4
@@ -311,36 +275,6 @@ parameters:
 			identifier: function.alreadyNarrowedType
 			count: 1
 			path: src/Sync/ObjectCache.php
-
-		-
-			message: '#^Default value of the parameter \#6 \$extra \(array\{\}\) of method Connect\\Sync\\ProductComparisonService\:\:row\(\) is incompatible with type array\{sku\: string\|null, barcode\: string\|null, price\: string\|null, variant_title\: string\|null\}\.$#'
-			identifier: parameter.defaultValue
-			count: 1
-			path: src/Sync/ProductComparisonService.php
-
-		-
-			message: '#^Offset ''flags'' does not exist on array\{match_value\: string\|null, label\: string\|null, shopify_quantity\: int\|null, target_quantity\: int\|null, status\: string, sku\: string\|null, barcode\: string\|null, price\: string\|null, \.\.\.\}\.$#'
-			identifier: offsetAccess.notFound
-			count: 2
-			path: src/Sync/ProductComparisonService.php
-
-		-
-			message: '#^Offset ''flags'' on array\{sku\: string\|null, barcode\: string\|null, price\: string\|null, variant_title\: string\|null\} on left side of \?\? does not exist\.$#'
-			identifier: nullCoalesce.offset
-			count: 1
-			path: src/Sync/ProductComparisonService.php
-
-		-
-			message: '#^Offset ''shopify_price'' on array\{sku\: string\|null, barcode\: string\|null, price\: string\|null, variant_title\: string\|null\} on left side of \?\? does not exist\.$#'
-			identifier: nullCoalesce.offset
-			count: 1
-			path: src/Sync/ProductComparisonService.php
-
-		-
-			message: '#^Offset ''target_price'' on array\{sku\: string\|null, barcode\: string\|null, price\: string\|null, variant_title\: string\|null\} on left side of \?\? does not exist\.$#'
-			identifier: nullCoalesce.offset
-			count: 1
-			path: src/Sync/ProductComparisonService.php
 
 		-
 			message: '#^Strict comparison using \!\=\= between int and null will always evaluate to true\.$#'

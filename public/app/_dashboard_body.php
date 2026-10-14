@@ -265,6 +265,69 @@ $agoText = static function (?int $minutes): string {
         </div>
     <?php endif; ?>
 
+    <?php
+    // Basisfunktionen: das Erste, was ein Merchant tut, ist Produkte uebernehmen -- deshalb ganz oben
+    // und gross, mit der Zahl der noch fehlenden Produkte.
+    $quickProd = $ov['products'];
+    $quickMissingTarget = $quickProd !== null ? (int) $quickProd['only_shopify'] : 0;
+    $quickMissingShopify = $quickProd !== null ? (int) $quickProd['only_target'] : 0;
+    $quickMissing = $quickMissingTarget + $quickMissingShopify;
+    // $link() haengt "?shop=" an, der Filter kommt mit "&" dahinter
+    $quickProductLink = $link('products.php');
+    if ($quickMissing > 0) {
+        $quickProductLink .= '&filter=' . ($quickMissingTarget > 0 ? 'missing_on_target' : 'missing_on_shopify');
+    }
+    ?>
+    <div class="card">
+        <div class="card-header"><h3 class="card-title">Los geht's</h3></div>
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-6 col-lg-3">
+                    <a href="<?php echo htmlspecialchars($quickProductLink); ?>" class="card card-link h-100 <?php echo $quickMissing > 0 ? 'border-primary' : ''; ?>" style="text-decoration:none;">
+                        <div class="card-body">
+                            <div class="d-flex align-items-center gap-2 mb-1"><span class="ov-ic"><?php echo \Connect\Ui\Icon::svg('box', 22); ?></span><strong>Produkte importieren</strong></div>
+                            <?php if ($quickProd === null): ?>
+                                <div class="text-secondary small">Die Produkte werden gerade geladen.</div>
+                            <?php elseif ($quickMissing > 0): ?>
+                                <div class="small"><span class="badge bg-orange-lt"><?php echo $quickMissing; ?> fehlen</span>
+                                    <?php echo $quickMissingTarget > 0 ? $quickMissingTarget . ' aus Shopify noch nicht in ' . htmlspecialchars($ov['target_name']) : ''; ?>
+                                    <?php echo $quickMissingTarget > 0 && $quickMissingShopify > 0 ? ' · ' : ''; ?>
+                                    <?php echo $quickMissingShopify > 0 ? $quickMissingShopify . ' aus ' . htmlspecialchars($ov['target_name']) . ' noch nicht in Shopify' : ''; ?>
+                                </div>
+                            <?php else: ?>
+                                <div class="text-secondary small">Alle Produkte sind verknüpft (<?php echo (int) $quickProd['linked']; ?>).</div>
+                            <?php endif; ?>
+                        </div>
+                    </a>
+                </div>
+                <div class="col-md-6 col-lg-3">
+                    <a href="<?php echo htmlspecialchars($link('product_check.php')); ?>" class="card card-link h-100" style="text-decoration:none;">
+                        <div class="card-body">
+                            <div class="d-flex align-items-center gap-2 mb-1"><span class="ov-ic"><?php echo \Connect\Ui\Icon::svg('list-check', 22); ?></span><strong>Produkt-Check</strong></div>
+                            <div class="text-secondary small">Daten, SEO und Texte deiner Shopify-Produkte prüfen.</div>
+                        </div>
+                    </a>
+                </div>
+                <div class="col-md-6 col-lg-3">
+                    <a href="<?php echo htmlspecialchars($link($ov['stock']['enabled'] ? 'stock.php' : 'sync_mappings.php#setup-stock')); ?>" class="card card-link h-100" style="text-decoration:none;">
+                        <div class="card-body">
+                            <div class="d-flex align-items-center gap-2 mb-1"><span class="ov-ic"><?php echo \Connect\Ui\Icon::svg('packages', 22); ?></span><strong>Lagerbestand</strong></div>
+                            <div class="text-secondary small"><?php echo $ov['stock']['enabled'] ? 'Abgleich läuft – Änderungen ansehen.' : 'Abgleich einschalten.'; ?></div>
+                        </div>
+                    </a>
+                </div>
+                <div class="col-md-6 col-lg-3">
+                    <a href="<?php echo htmlspecialchars($link($ov['invoice']['mode'] === 'off' ? 'sync_mappings.php#setup-invoice' : 'invoices.php')); ?>" class="card card-link h-100" style="text-decoration:none;">
+                        <div class="card-body">
+                            <div class="d-flex align-items-center gap-2 mb-1"><span class="ov-ic"><?php echo \Connect\Ui\Icon::svg('file-invoice', 22); ?></span><strong>Rechnungen</strong></div>
+                            <div class="text-secondary small"><?php echo $ov['invoice']['mode'] === 'off' ? 'Rechnungen automatisch erstellen – einschalten.' : 'Erstellte Rechnungen ansehen.'; ?></div>
+                        </div>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="row row-cards">
         <div class="col-md-4">
             <div class="card h-100"><div class="card-body d-flex flex-column gap-3">
@@ -344,7 +407,7 @@ $agoText = static function (?int $minutes): string {
                         ?>
                         <div><span>Produkt-Qualität</span><span><a href="<?php echo htmlspecialchars($link('product_check.php')); ?>"><?php echo $checkScore !== false && $checkScore !== null ? (int) $checkScore . ' %' : 'jetzt prüfen'; ?></a></span></div>
                     </div>
-                    <div class="mt-auto"><a href="<?php echo htmlspecialchars($link('products.php')); ?>" class="btn btn-sm"><?php echo (int) $prod['only_shopify'] + (int) $prod['only_target'] > 0 ? 'Fehlende ansehen' : 'Produkte ansehen'; ?></a></div>
+                    <div class="mt-auto"><a href="<?php echo htmlspecialchars($quickProductLink); ?>" class="btn btn-sm <?php echo $quickMissing > 0 ? 'btn-primary' : ''; ?>"><?php echo $quickMissing > 0 ? 'Fehlende importieren' : 'Produkte ansehen'; ?></a></div>
                 <?php endif; ?>
             </div></div>
         </div>
@@ -499,7 +562,7 @@ $agoText = static function (?int $minutes): string {
                 </div>
                 <div class="card-footer text-secondary small">
                     <?php echo htmlspecialchars(implode(' · ', $setup['data'])); ?>.
-                    Änderungen in Shopify oder im Zielsystem werden nicht sofort sichtbar – oView gleicht stündlich ab.
+                    Änderungen in Shopify oder in <?php echo htmlspecialchars($ov['target_name']); ?> werden nicht sofort sichtbar – oView gleicht stündlich ab.
                 </div>
             </div>
         </div>

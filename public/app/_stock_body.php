@@ -87,9 +87,10 @@ $statusBadge = [
     'partial' => 'bg-yellow-lt',
 ];
 
+$stockTargetName = htmlspecialchars((string) (($shopSettings['target_type_name'] ?? null) ?: 'deine Software'));
 $directionLabel = [
-    'shopify_to_target' => 'Shopify &rarr; Zielsystem',
-    'target_to_shopify' => 'Zielsystem &rarr; Shopify',
+    'shopify_to_target' => 'Shopify &rarr; ' . $stockTargetName,
+    'target_to_shopify' => $stockTargetName . ' &rarr; Shopify',
 ];
 
 $pageTitle = 'Lagerbestände' . ($isAdmin ? ' — ' . $shop : '');
@@ -115,12 +116,12 @@ require __DIR__ . '/_header.php';
             <div class="card-body">
                 <?php if ($shopSettings === false || $shopSettings['target_connection_id'] === null): ?>
                     <div class="alert alert-info mb-0">
-                        Noch kein Zielsystem verbunden<?php echo $isAdmin ? '.' : ' — bitte unter "Einstellungen" einrichten.'; ?>
+                        Noch keine Software verbunden<?php echo $isAdmin ? '.' : ' — bitte unter "Einstellungen" einrichten.'; ?>
                     </div>
                 <?php else: ?>
                     <div class="row">
                         <div class="col-sm-6 col-lg-3">
-                            <div class="text-secondary">Zielsystem</div>
+                            <div class="text-secondary">Verbunden mit</div>
                             <div><?php echo htmlspecialchars((string) $shopSettings['target_label'] . ' (' . $shopSettings['target_type_name'] . ')'); ?></div>
                         </div>
                         <div class="col-sm-6 col-lg-3">

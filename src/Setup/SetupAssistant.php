@@ -104,7 +104,7 @@ final class SetupAssistant
             $t->execute(['id' => (int) $s['target_connection_id']]);
             $target = $t->fetch() ?: null;
         }
-        $targetName = $target !== null ? (string) $target['type_name'] : 'Zielsystem';
+        $targetName = $target !== null ? (string) $target['type_name'] : 'deiner Software';
         $targetOk = $target !== null && $target['status'] === 'active';
 
         $compareLabels = ['title' => 'Produktname', 'sku' => 'SKU', 'barcode' => 'Barcode'];

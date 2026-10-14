@@ -30,7 +30,7 @@ final class ProductComparisonService
     ) {}
 
     /**
-     * @return array{status: string, message: ?string, comparisonKey: ?string, rows: array<int, array{match_value: ?string, label: ?string, shopify_quantity: ?int, target_quantity: ?int, status: string, sku: ?string, barcode: ?string, price: ?string, variant_title: ?string}>}
+     * @return array{status: string, message: ?string, comparisonKey: ?string, rows: list<array{match_value: ?string, label: ?string, shopify_quantity: ?int, target_quantity: ?int, status: string, sku: ?string, barcode: ?string, price: ?string, variant_title: ?string, flags: list<string>, shopify_price: ?string, target_price: ?string}>, problems?: list<array{key: string, label: string, count: int}>, buffer?: int, prices_comparable?: bool, prices_gross?: bool, hidden_by_location?: int, location_missing?: bool}
      *         status: skipped | error | success
      */
     public function buildReport(string $shop): array
@@ -41,6 +41,9 @@ final class ProductComparisonService
             return ['status' => $e->status, 'message' => $e->getMessage(), 'comparisonKey' => null, 'rows' => []];
         }
 
+        // Name der verbundenen Software fuer die Texte (statt "Zielsystem")
+        $targetName = TargetCapabilities::forShop($this->pdo, $shop)['target_name'];
+
         $objectCache = new ObjectCache($this->pdo);
         $shopifyRecords = $objectCache->getCached($context->shopifyConnectionId, $context->shopifyObject->key);
         $targetRecords = $objectCache->getCached($context->targetConnectionId, $context->targetObject->key);
@@ -48,7 +51,7 @@ final class ProductComparisonService
         if (count($shopifyRecords) === 0 && count($targetRecords) === 0) {
             return [
                 'status' => 'skipped',
-                'message' => 'Noch keine Daten im Cache -- weder Shopify noch Zielsystem.',
+                'message' => "Noch keine Daten im Cache -- weder Shopify noch {$targetName}.",
                 'comparisonKey' => $context->comparisonKey,
                 'rows' => [],
             ];
@@ -106,7 +109,7 @@ final class ProductComparisonService
                     'record' => 'target',
                     'field' => $targetRoleField,
                     'limit' => $shopifyRoleField->maxLength,
-                    'label' => "{$roleLabel} im Zielsystem zu lang (mehr als {$shopifyRoleField->maxLength} Zeichen)",
+                    'label' => "{$roleLabel} in {$targetName} zu lang (mehr als {$shopifyRoleField->maxLength} Zeichen)",
                 ];
             }
         }
@@ -318,7 +321,7 @@ final class ProductComparisonService
         if ($shopifyPriceField !== null && $targetPriceField !== null) {
             $problems[] = [
                 'key' => 'price_diff',
-                'label' => 'Preis weicht ab (Shopify ↔ Zielsystem, ' . ($rules['prices_gross'] ? 'brutto' : 'netto') . ')',
+                'label' => 'Preis weicht ab (Shopify ↔ ' . $targetName . ', ' . ($rules['prices_gross'] ? 'brutto' : 'netto') . ')',
                 'count' => count(array_filter($rows, static fn (array $r): bool => in_array('price_diff', $r['flags'], true))),
             ];
         }
@@ -364,8 +367,8 @@ final class ProductComparisonService
     }
 
     /**
-     * @param array{sku: ?string, barcode: ?string, price: ?string, variant_title: ?string} $extra
-     * @return array{match_value: ?string, label: ?string, shopify_quantity: ?int, target_quantity: ?int, status: string, sku: ?string, barcode: ?string, price: ?string, variant_title: ?string}
+     * @param array{sku?: ?string, barcode?: ?string, price?: ?string, variant_title?: ?string, flags?: list<string>, shopify_price?: ?string, target_price?: ?string} $extra
+     * @return array{match_value: ?string, label: ?string, shopify_quantity: ?int, target_quantity: ?int, status: string, sku: ?string, barcode: ?string, price: ?string, variant_title: ?string, flags: list<string>, shopify_price: ?string, target_price: ?string}
      */
     private static function row(?string $matchValue, ?string $label, ?int $shopifyQuantity, ?int $targetQuantity, string $status, array $extra = []): array
     {

@@ -52,6 +52,66 @@ $manualInputFields = $importService->manualInputFieldsForTargetImport($shop);
 // Spaltenreihenfolge der Tabelle unten.
 $editableRoles = ['title', 'sku', 'barcode', 'price'];
 
+// Name der verbundenen Software (z. B. "HelloCash") fuer alle Texte statt "Zielsystem"
+$targetName = \Connect\Sync\TargetCapabilities::forShop($pdo, $shop)['target_name'];
+$previewQuery = isset($_GET['preview']) ? '&preview=1' : '';
+
+// Sammelimport braucht fuer jedes manuelle Pflichtfeld (z. B. Steuersatz) eine Vorbelegung aus den
+// Einstellungen -- eine Eingabe je Produkt gibt es dort nicht.
+$bulkManualValues = [];
+$bulkMissingDefault = [];
+foreach ($manualInputFields as $manualInputField) {
+    if ($manualInputField['default_value'] !== null && $manualInputField['default_value'] !== '') {
+        $bulkManualValues[$manualInputField['field_key']] = $manualInputField['default_value'];
+    } else {
+        $bulkMissingDefault[] = $manualInputField['label'];
+    }
+}
+
+// -----------------------------------------------------------------------
+// POST (fetch/JSON): Sammelimport "alle fehlenden anlegen" -- ein kleiner Stapel je Aufruf, die Seite
+// ruft so lange erneut auf, bis nichts mehr uebrig ist (Webserver-Zeitlimit, Fortschrittsanzeige).
+// Dieselbe Logik wie der Einzelimport (ProductImportService::importMissingProduct), ohne
+// Feld-Aenderungen. "skip" = JSON-Liste bereits versuchter Vergleichswerte, damit ein Fehlschlag
+// nicht endlos wiederholt wird.
+// -----------------------------------------------------------------------
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'import_batch') {
+    header('Content-Type: application/json; charset=utf-8');
+    header('Cache-Control: no-store');
+    $batchMissingOn = (string) ($_POST['missing_on'] ?? '');
+    if (!in_array($batchMissingOn, ['shopify', 'target'], true)) {
+        echo json_encode(['error' => 'Ungültige Richtung.']);
+        exit;
+    }
+    if ($batchMissingOn === 'target' && $bulkMissingDefault !== []) {
+        echo json_encode(['error' => 'Für den Sammelimport fehlt eine Vorbelegung in den Einstellungen: ' . implode(', ', $bulkMissingDefault) . '.']);
+        exit;
+    }
+    @set_time_limit(120);
+    $skipDecoded = json_decode((string) ($_POST['skip'] ?? '[]'), true);
+    $skipSet = is_array($skipDecoded) ? array_flip(array_map('strval', $skipDecoded)) : [];
+    $batchStatus = $batchMissingOn === 'shopify' ? 'missing_on_shopify' : 'missing_on_target';
+
+    $batchReport = (new ProductComparisonService($pdo, $factory))->buildReport($shop);
+    if ($batchReport['status'] !== 'success') {
+        echo json_encode(['error' => $batchReport['message'] ?? 'Vergleich nicht möglich.']);
+        exit;
+    }
+    $candidates = array_values(array_filter(
+        $batchReport['rows'],
+        static fn (array $r): bool => $r['status'] === $batchStatus && (string) ($r['match_value'] ?? '') !== '' && !isset($skipSet[(string) $r['match_value']])
+    ));
+    $batchRows = array_slice($candidates, 0, 5);
+    $batchResults = [];
+    foreach ($batchRows as $batchRow) {
+        $matchValue = (string) $batchRow['match_value'];
+        $res = $importService->importMissingProduct($shop, $matchValue, $batchMissingOn, null, $batchMissingOn === 'target' ? $bulkManualValues : [], []);
+        $batchResults[] = ['match' => $matchValue, 'label' => (string) ($batchRow['label'] ?? $matchValue), 'success' => (bool) $res['success'], 'message' => (string) $res['message']];
+    }
+    echo json_encode(['results' => $batchResults, 'remaining' => count($candidates) - count($batchRows)], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
 $flashMessage = null;
 $flashType = 'info';
 
@@ -106,7 +166,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'impor
 
             $fieldOverrides = [];
             foreach ($editableRoles as $role) {
-                $fieldOverrides[$role] = trim((string) ($fieldOverridePost[$role][$index] ?? ''));
+                // Nur tatsaechlich gesendete Felder (Spalte sichtbar): ein leeres,
+                // gesendetes Feld heisst "bewusst geleert", ein fehlendes "unveraendert".
+                if (isset($fieldOverridePost[$role][$index])) {
+                    $fieldOverrides[$role] = trim((string) $fieldOverridePost[$role][$index]);
+                }
             }
 
             if ($matchValue === '' || !in_array($missingOn, ['shopify', 'target'], true)) {
@@ -149,11 +213,11 @@ $variantImportActive = (string) ($variantComparisonKeyStmt->fetchColumn() ?: '')
 
 $statusLabels = [
     'no_comparison_value_shopify' => 'Fehlender Vergleichswert (Shopify)',
-    'no_comparison_value_target' => 'Fehlender Vergleichswert (Zielsystem)',
+    'no_comparison_value_target' => 'Fehlender Vergleichswert (' . $targetName . ')',
     'duplicate_shopify' => 'Vergleichswert doppelt (Shopify)',
-    'duplicate_target' => 'Vergleichswert doppelt (Zielsystem)',
+    'duplicate_target' => 'Vergleichswert doppelt (' . $targetName . ')',
     'missing_on_shopify' => 'Fehlt bei Shopify',
-    'missing_on_target' => 'Fehlt im Zielsystem',
+    'missing_on_target' => 'Fehlt in ' . $targetName,
     'diff' => 'Abweichender Bestand',
     'unknown' => 'Bestand unbekannt',
     'in_sync' => 'Synchron',
@@ -182,11 +246,11 @@ $filterOptions = [
     'in_sync' => 'Synchron',
     'diff' => 'Abweichender Bestand',
     'no_comparison_value_shopify' => 'Fehlender Vergleichswert (Shopify)',
-    'no_comparison_value_target' => 'Fehlender Vergleichswert (Zielsystem)',
+    'no_comparison_value_target' => 'Fehlender Vergleichswert (' . $targetName . ')',
     'duplicate_shopify' => 'Vergleichswert doppelt (Shopify)',
-    'duplicate_target' => 'Vergleichswert doppelt (Zielsystem)',
+    'duplicate_target' => 'Vergleichswert doppelt (' . $targetName . ')',
     'missing_on_shopify' => 'Fehlt bei Shopify',
-    'missing_on_target' => 'Fehlt im Zielsystem',
+    'missing_on_target' => 'Fehlt in ' . $targetName,
     'unknown' => 'Bestand unbekannt',
 ];
 
@@ -196,11 +260,11 @@ if (in_array('bundle', array_column($allRows, 'status'), true)) {
     $filterOptions['bundle'] = 'Sets';
 }
 
-// Zähler je Status für die Filterleiste -- immer über ALLE Zeilen, nicht
+// Zähler je Status für die Filterleiste -- ohne Suche über ALLE Zeilen, nicht
 // nur die aktuell angezeigte Seite.
-$counts = ['all' => count($allRows)];
+$totalCounts = ['all' => count($allRows)];
 foreach ($allRows as $row) {
-    $counts[$row['status']] = ($counts[$row['status']] ?? 0) + 1;
+    $totalCounts[$row['status']] = ($totalCounts[$row['status']] ?? 0) + 1;
 }
 
 // Laengen-Pruefungen (connect_object_fields.max_length, siehe
@@ -208,8 +272,32 @@ foreach ($allRows as $row) {
 // vorhanden, wenn im Connector Builder ein Limit gesetzt ist.
 $lengthProblems = $report['problems'] ?? [];
 foreach ($lengthProblems as $lengthProblem) {
-    $counts[$lengthProblem['key']] = $lengthProblem['count'];
+    $totalCounts[$lengthProblem['key']] = $lengthProblem['count'];
     $filterOptions[$lengthProblem['key']] = $lengthProblem['label'];
+}
+
+// Suche (GET q): Produktname, Vergleichswert, SKU, Barcode, Variante. Die Zähler der Filterleiste
+// beziehen sich dann auf die Treffer, damit Suche und Filter zusammenpassen.
+$searchTerm = mb_substr(trim((string) ($_GET['q'] ?? '')), 0, 100);
+$searchRows = $allRows;
+$counts = $totalCounts;
+if ($searchTerm !== '') {
+    $searchRows = array_values(array_filter($allRows, static function (array $row) use ($searchTerm): bool {
+        foreach ([$row['label'] ?? null, $row['match_value'] ?? null, $row['sku'] ?? null, $row['barcode'] ?? null, $row['variant_title'] ?? null] as $haystack) {
+            if ($haystack !== null && mb_stripos((string) $haystack, $searchTerm) !== false) {
+                return true;
+            }
+        }
+
+        return false;
+    }));
+    $counts = ['all' => count($searchRows)];
+    foreach ($searchRows as $row) {
+        $counts[$row['status']] = ($counts[$row['status']] ?? 0) + 1;
+        foreach ($row['flags'] as $flagKey) {
+            $counts[$flagKey] = ($counts[$flagKey] ?? 0) + 1;
+        }
+    }
 }
 
 // Zusätzliche Spalten (SKU/Barcode/Preis/Variantentitel, siehe
@@ -239,8 +327,8 @@ if (!array_key_exists($filter, $filterOptions)) {
 }
 
 $filteredRows = $filter === 'all'
-    ? $allRows
-    : array_values(array_filter($allRows, static fn(array $row): bool => $row['status'] === $filter || in_array($filter, $row['flags'], true)));
+    ? $searchRows
+    : array_values(array_filter($searchRows, static fn(array $row): bool => $row['status'] === $filter || in_array($filter, $row['flags'], true)));
 
 // Paginierung server-seitig über das bereits gefilterte PHP-Array (kein SQL
 // LIMIT/OFFSET möglich -- die Datenquelle ist der JSON-Objekt-Cache, siehe
@@ -297,49 +385,158 @@ require __DIR__ . '/_header.php';
             </div>
         <?php endif; ?>
         <?php
+        $e = static fn (?string $s): string => htmlspecialchars((string) $s, ENT_QUOTES);
+        // Link auf diese Seite mit gesetzten Parametern (Filter/Suche/Seitengroesse bleiben erhalten,
+        // die Vorschau-Ansicht des Admins ebenso)
+        $urlFor = static function (array $override = []) use ($shop, $previewQuery, $filter, $searchTerm, $pageSize): string {
+            $params = array_merge(['filter' => $filter, 'q' => $searchTerm, 'page_size' => $pageSize], $override);
+            $query = '?shop=' . urlencode($shop) . $previewQuery;
+            foreach ($params as $key => $value) {
+                if ($value === '' || $value === null || ($key === 'filter' && $value === 'all') || ($key === 'page_size' && (int) $value === 50) || ($key === 'page' && (int) $value <= 1)) {
+                    continue;
+                }
+                $query .= '&' . $key . '=' . urlencode((string) $value);
+            }
+
+            return $query;
+        };
+
+        // Produkt-Check: letzter Punktwert (Connect\Sync\ProductCheck, Migration 0090)
+        try {
+            $checkScoreStmt = $pdo->prepare("SELECT score FROM connect_product_checks WHERE shop = :shop AND status = 'done'");
+            $checkScoreStmt->execute(['shop' => $shop]);
+            $checkScore = $checkScoreStmt->fetchColumn();
+        } catch (\PDOException) {
+            $checkScore = false;
+        }
+        $checkScore = $checkScore !== false && $checkScore !== null ? (int) $checkScore : null;
+        $checkColor = $checkScore === null ? 'secondary' : ($checkScore >= 85 ? 'green' : ($checkScore >= 65 ? 'yellow' : 'red'));
+
+        $missingOnTargetCount = (int) ($totalCounts['missing_on_target'] ?? 0);
+        $missingOnShopifyCount = (int) ($totalCounts['missing_on_shopify'] ?? 0);
+
         // Altsystem-Pruefungen ("Probleme"): Datensaetze mit leerem oder
         // mehrfach vorkommendem Vergleichswert koennen nicht synchronisiert
         // werden. Zaehlung = Anzahl betroffener Datensaetze, entspricht damit
         // exakt der Zeilenzahl des verlinkten Filters.
         $problemChecks = [
-            'duplicate_target' => 'Vergleichswert-Duplikate im Zielsystem',
+            'duplicate_target' => 'Vergleichswert-Duplikate in ' . $targetName,
             'duplicate_shopify' => 'Vergleichswert-Duplikate in Shopify',
-            'no_comparison_value_target' => 'Fehlende Vergleichswerte im Zielsystem',
+            'no_comparison_value_target' => 'Fehlende Vergleichswerte in ' . $targetName,
             'no_comparison_value_shopify' => 'Fehlende Vergleichswerte in Shopify',
         ];
+        foreach ($lengthProblems as $lengthProblem) {
+            $problemChecks[$lengthProblem['key']] = $lengthProblem['label'];
+        }
+        $openProblems = [];
+        foreach ($problemChecks as $problemKey => $problemLabel) {
+            if ((int) ($totalCounts[$problemKey] ?? 0) > 0) {
+                $openProblems[$problemKey] = $problemLabel;
+            }
+        }
         ?>
-        <div class="col-12">
-            <div class="card">
-                <div class="card-header">
-                    <h3 class="card-title">Probleme</h3>
-                </div>
+
+        <?php // ---- Basis-Aktionen: Produkte uebernehmen + Produkt-Check -------------------------------- ?>
+        <div class="col-lg-7">
+            <div class="card h-100">
+                <div class="card-header"><h3 class="card-title"><?php echo \Connect\Ui\Icon::svg('packages', 18, 'me-1'); ?>Produkte übernehmen</h3></div>
                 <div class="card-body">
-                    <p class="text-secondary">Wichtig: Artikel mit fehlendem (leerem) oder mehrfach vorkommendem Vergleichswert können nicht synchronisiert werden!</p>
-                    <div class="list-group list-group-flush">
-                        <?php foreach ($problemChecks as $problemStatus => $problemLabel): ?>
-                            <?php $problemCount = (int) ($counts[$problemStatus] ?? 0); ?>
-                            <div class="list-group-item d-flex align-items-center justify-content-between px-0">
-                                <a href="?shop=<?php echo urlencode($shop); ?>&amp;filter=<?php echo urlencode($problemStatus); ?>"><?php echo htmlspecialchars($problemLabel); ?></a>
-                                <span class="badge <?php echo $problemCount > 0 ? 'bg-orange-lt' : 'bg-green-lt'; ?>"><?php echo $problemCount; ?></span>
+                    <?php if ($missingOnTargetCount === 0 && $missingOnShopifyCount === 0): ?>
+                        <div class="text-success"><?php echo \Connect\Ui\Icon::svg('circle-check', 16, 'me-1'); ?>Alle Produkte sind zwischen Shopify und <?php echo $e($targetName); ?> verknüpft.</div>
+                        <div class="small text-secondary mt-1">Neue Produkte erscheinen hier automatisch, sobald sie auf einer Seite angelegt werden.</div>
+                    <?php else: ?>
+                        <div class="d-grid gap-3">
+                            <?php foreach ([['target', $missingOnTargetCount, 'Shopify', $targetName, 'missing_on_target'], ['shopify', $missingOnShopifyCount, $targetName, 'Shopify', 'missing_on_shopify']] as [$bulkDir, $bulkCount, $bulkFrom, $bulkTo, $bulkFilter]): ?>
+                                <?php if ($bulkCount === 0) { continue; } ?>
+                                <?php $bulkBlocked = $bulkDir === 'target' && $bulkMissingDefault !== []; ?>
+                                <div class="d-flex flex-wrap align-items-center gap-2">
+                                    <div class="flex-fill" style="min-width: 14rem;">
+                                        <strong><?php echo $bulkCount; ?></strong> Produkte aus <?php echo $e($bulkFrom); ?> gibt es noch nicht in <?php echo $e($bulkTo); ?>
+                                    </div>
+                                    <a href="<?php echo $e($urlFor(['filter' => $bulkFilter, 'q' => '', 'page' => 1])); ?>" class="btn btn-sm">Einzeln auswählen</a>
+                                    <button type="button" class="btn btn-sm btn-primary" data-bulk-import="<?php echo $bulkDir; ?>" data-count="<?php echo $bulkCount; ?>" data-from="<?php echo $e($bulkFrom); ?>" data-to="<?php echo $e($bulkTo); ?>" <?php echo $bulkBlocked ? 'disabled' : ''; ?>>Alle <?php echo $bulkCount; ?> anlegen</button>
+                                </div>
+                                <?php if ($bulkBlocked): ?>
+                                    <div class="alert alert-warning py-2 mb-0 small">
+                                        Für den Sammelimport fehlt ein Standardwert für <strong><?php echo $e(implode(', ', $bulkMissingDefault)); ?></strong>.
+                                        <a href="sync_mappings.php?shop=<?php echo urlencode($shop); ?><?php echo $e($previewQuery); ?>#setup-prices">In den Einstellungen festlegen</a> – oder die Produkte einzeln auswählen und den Wert je Zeile eintragen.
+                                    </div>
+                                <?php endif; ?>
+                            <?php endforeach; ?>
+                        </div>
+                        <div class="small text-secondary mt-3">
+                            Ein Klick übernimmt alle fehlenden Produkte der jeweiligen Richtung – Schritt für Schritt im Hintergrund dieser Seite
+                            (je 5 Produkte pro Durchgang, bei großen Beständen dauert das einige Minuten). Titel, SKU, Barcode und Preis werden so übernommen, wie sie in der Liste unten stehen.
+                            Die Seite bitte offen lassen; ein Abbruch ist jederzeit möglich, bereits angelegte Produkte bleiben bestehen.
+                        </div>
+                        <div id="bulk-box" class="mt-3" hidden>
+                            <div class="d-flex justify-content-between small mb-1"><span id="bulk-status">Starte …</span><span id="bulk-count"></span></div>
+                            <div class="progress progress-sm mb-2"><div id="bulk-bar" class="progress-bar" style="width: 0%"></div></div>
+                            <div class="d-flex gap-2">
+                                <button type="button" id="bulk-stop" class="btn btn-sm btn-outline-danger">Abbrechen</button>
+                                <a href="<?php echo $e($urlFor(['page' => 1])); ?>" id="bulk-reload" class="btn btn-sm btn-primary" hidden>Liste aktualisieren</a>
                             </div>
-                        <?php endforeach; ?>
-                        <?php foreach ($lengthProblems as $lengthProblem): ?>
-                            <div class="list-group-item d-flex align-items-center justify-content-between px-0">
-                                <a href="?shop=<?php echo urlencode($shop); ?>&amp;filter=<?php echo urlencode($lengthProblem['key']); ?>"><?php echo htmlspecialchars($lengthProblem['label']); ?></a>
-                                <span class="badge <?php echo $lengthProblem['count'] > 0 ? 'bg-orange-lt' : 'bg-green-lt'; ?>"><?php echo (int) $lengthProblem['count']; ?></span>
-                            </div>
-                        <?php endforeach; ?>
+                            <div id="bulk-errors" class="small text-danger mt-2"></div>
+                        </div>
+                    <?php endif; ?>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-5">
+            <div class="card h-100">
+                <div class="card-header"><h3 class="card-title"><?php echo \Connect\Ui\Icon::svg('list-check', 18, 'me-1'); ?>Produkt-Check</h3></div>
+                <div class="card-body d-flex flex-column">
+                    <div class="d-flex align-items-center gap-3">
+                        <div class="display-6 fw-bold text-<?php echo $checkColor; ?>"><?php echo $checkScore !== null ? $checkScore . ' %' : '–'; ?></div>
+                        <div class="text-secondary small">
+                            <?php echo $checkScore !== null ? 'Qualität deiner Shopify-Produkte (Daten, SEO, Texte).' : 'Prüft deine Shopify-Produkte auf fehlende Daten, SEO und Textqualität.'; ?>
+                        </div>
+                    </div>
+                    <div class="mt-auto pt-3">
+                        <a href="product_check.php?shop=<?php echo urlencode($shop); ?><?php echo $e($previewQuery); ?>" class="btn btn-primary"><?php echo $checkScore !== null ? 'Befunde ansehen' : 'Jetzt prüfen'; ?></a>
                     </div>
                 </div>
             </div>
         </div>
 
+        <?php if ($openProblems !== []): ?>
+            <div class="col-12">
+                <div class="alert alert-warning mb-0">
+                    <div class="fw-bold mb-1"><?php echo \Connect\Ui\Icon::svg('alert-triangle', 16, 'me-1'); ?>Diese Produkte können nicht abgeglichen werden</div>
+                    <div class="small mb-2">Artikel mit fehlendem (leerem) oder mehrfach vorkommendem Vergleichswert werden nicht synchronisiert.</div>
+                    <div class="d-flex flex-wrap gap-2">
+                        <?php foreach ($openProblems as $problemKey => $problemLabel): ?>
+                            <a href="<?php echo $e($urlFor(['filter' => $problemKey, 'q' => '', 'page' => 1])); ?>" class="btn btn-sm btn-outline-warning"><?php echo $e($problemLabel); ?> <span class="badge bg-orange-lt ms-1"><?php echo (int) $totalCounts[$problemKey]; ?></span></a>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+            </div>
+        <?php endif; ?>
+
+        <?php // ---- Suche + Filter ------------------------------------------------------------------- ?>
         <div class="col-12">
             <div class="card">
                 <div class="card-body">
+                    <form method="get" class="d-flex flex-wrap gap-2 mb-3">
+                        <input type="hidden" name="shop" value="<?php echo $e($shop); ?>">
+                        <?php if ($previewQuery !== ''): ?><input type="hidden" name="preview" value="1"><?php endif; ?>
+                        <input type="hidden" name="filter" value="<?php echo $e($filter); ?>">
+                        <input type="hidden" name="page_size" value="<?php echo $pageSize; ?>">
+                        <div class="flex-fill" style="min-width: 14rem;">
+                            <input type="search" name="q" value="<?php echo $e($searchTerm); ?>" class="form-control" placeholder="Produkt suchen: Name, Artikelnummer / SKU, Barcode …" maxlength="100" aria-label="Produkt suchen">
+                        </div>
+                        <button type="submit" class="btn btn-primary">Suchen</button>
+                        <?php if ($searchTerm !== ''): ?><a href="<?php echo $e($urlFor(['q' => '', 'page' => 1])); ?>" class="btn">Zurücksetzen</a><?php endif; ?>
+                    </form>
+                    <?php if ($searchTerm !== ''): ?>
+                        <div class="small text-secondary mb-2"><?php echo (int) $counts['all']; ?> Treffer für „<?php echo $e($searchTerm); ?>“ – die Zahlen an den Filtern gelten für diese Suche.</div>
+                    <?php endif; ?>
                     <div class="btn-group flex-wrap" role="group">
                         <?php foreach ($filterOptions as $key => $label): ?>
-                            <a href="?shop=<?php echo urlencode($shop); ?>&amp;filter=<?php echo urlencode($key); ?>"
+                            <?php // Filter ohne Eintraege ausblenden (ausser "Alle", Synchron, Abweichend und dem aktiven) -- sonst ist die Leiste voller Nullen ?>
+                            <?php if ($key !== 'all' && $key !== $filter && (int) ($counts[$key] ?? 0) === 0 && !in_array($key, ['in_sync', 'diff'], true)) { continue; } ?>
+                            <a href="<?php echo $e($urlFor(['filter' => $key, 'page' => 1])); ?>"
                                 class="btn btn-sm <?php echo $filter === $key ? 'btn-primary' : 'btn-outline-secondary'; ?>">
                                 <?php echo htmlspecialchars($label); ?>
                                 <?php // auf dem aktiven (blauen) Knopf heller Zaehler, sonst war die Zahl kaum lesbar ?>
@@ -383,13 +580,14 @@ require __DIR__ . '/_header.php';
                 <div class="card-header d-flex align-items-center justify-content-between w-100">
                     <h3 class="card-title mb-0">Produkte (Vergleichswert: <?php echo htmlspecialchars((string) $report['comparisonKey']); ?>)
                         <?php if ((int) ($report['buffer'] ?? 0) > 0): ?>
-                            <span class="badge bg-blue-lt ms-2" title="Shopify zeigt den Bestand des Zielsystems minus diese Anzahl – das gilt als synchron.">Sicherheitsbestand <?php echo (int) $report['buffer']; ?></span>
+                            <span class="badge bg-blue-lt ms-2" title="Shopify zeigt den Bestand aus <?php echo htmlspecialchars($targetName); ?> minus diese Anzahl – das gilt als synchron.">Sicherheitsbestand <?php echo (int) $report['buffer']; ?></span>
                         <?php endif; ?>
                     </h3>
                     <form method="get" class="d-flex align-items-center gap-2">
-                        <a href="product_check.php?shop=<?php echo urlencode($shop); ?><?php echo isset($_GET['preview']) ? '&amp;preview=1' : ''; ?>" class="btn btn-sm btn-outline-primary me-2"><?php echo \Connect\Ui\Icon::svg('list-check', 16, 'me-1'); ?>Produkt-Check</a>
                         <a href="bundles.php?shop=<?php echo urlencode($shop); ?><?php echo isset($_GET['preview']) ? '&amp;preview=1' : ''; ?>" class="btn btn-sm btn-outline-primary me-2"><?php echo \Connect\Ui\Icon::svg('packages', 16, 'me-1'); ?>Sets</a>
                         <input type="hidden" name="shop" value="<?php echo htmlspecialchars($shop); ?>">
+                        <input type="hidden" name="q" value="<?php echo htmlspecialchars($searchTerm); ?>">
+                        <?php if ($previewQuery !== ''): ?><input type="hidden" name="preview" value="1"><?php endif; ?>
                         <input type="hidden" name="filter" value="<?php echo htmlspecialchars($filter); ?>">
                         <label class="text-secondary mb-0">pro Seite</label>
                         <select name="page_size" class="form-select form-select-sm" style="width:auto" onchange="this.form.submit()">
@@ -400,7 +598,7 @@ require __DIR__ . '/_header.php';
                     </form>
                 </div>
                 <?php if (count($pageRows) === 0): ?>
-                    <div class="card-body text-secondary">Keine Produkte in dieser Ansicht.</div>
+                    <div class="card-body text-secondary"><?php echo $searchTerm !== '' ? 'Keine Treffer für „' . htmlspecialchars($searchTerm) . '“ in dieser Ansicht.' : 'Keine Produkte in dieser Ansicht.'; ?></div>
                 <?php else: ?>
                     <?php
                     // Gibt es auf dieser Seite ueberhaupt eine importierbare
@@ -446,7 +644,7 @@ require __DIR__ . '/_header.php';
                                         <?php if ($showPriceColumn): ?><th>Preis</th><?php endif; ?>
                                         <?php if ($showVariantTitleColumn): ?><th>Variante</th><?php endif; ?>
                                         <th class="text-end">Bestand Shopify</th>
-                                        <th class="text-end">Bestand Zielsystem</th>
+                                        <th class="text-end">Bestand <?php echo htmlspecialchars($targetName); ?></th>
                                         <th>Status</th>
                                         <th></th>
                                     </tr>
@@ -501,7 +699,7 @@ require __DIR__ . '/_header.php';
                                                 <td>
                                                     <?php echo $editableCell('price', $row['price']); ?>
                                                     <?php if (in_array('price_diff', $row['flags'], true)): ?>
-                                                        <div class="small text-warning text-nowrap" title="Preis im Zielsystem">Kasse: <?php echo htmlspecialchars(number_format((float) $row['target_price'], 2, ',', '.')); ?></div>
+                                                        <div class="small text-warning text-nowrap" title="Preis in <?php echo htmlspecialchars($targetName); ?>"><?php echo htmlspecialchars($targetName); ?>: <?php echo htmlspecialchars(number_format((float) $row['target_price'], 2, ',', '.')); ?></div>
                                                     <?php endif; ?>
                                                 </td>
                                             <?php endif; ?>
@@ -519,7 +717,7 @@ require __DIR__ . '/_header.php';
                                                 <?php endif; ?>
                                                 <?php if ($missingOn === 'target'): ?>
                                                     <?php foreach ($manualInputFields as $manualInputField): ?>
-                                                        <?php $manualFieldTitle = htmlspecialchars($manualInputField['label']) . ' -- wird beim Import an das Zielsystem übermittelt.' . ($manualInputField['default_value'] !== null ? ' Vorbelegt aus dem Standard-Steuersatz unter Einstellungen -- pro Produkt änderbar.' : ''); ?>
+                                                        <?php $manualFieldTitle = htmlspecialchars($manualInputField['label']) . ' -- wird beim Import an ' . htmlspecialchars($targetName) . ' übermittelt.' . ($manualInputField['default_value'] !== null ? ' Vorbelegt aus dem Standard-Steuersatz unter Einstellungen -- pro Produkt änderbar.' : ''); ?>
                                                         <input type="text" name="manual_field[<?php echo htmlspecialchars($manualInputField['field_key']); ?>][<?php echo $i; ?>]" value="<?php echo htmlspecialchars((string) ($preservedManualFields[$manualInputField['field_key']] ?? $manualInputField['default_value'] ?? '')); ?>" class="form-control form-control-sm mb-1" style="width:120px" placeholder="<?php echo htmlspecialchars($manualInputField['label']); ?>" title="<?php echo $manualFieldTitle; ?>">
                                                     <?php endforeach; ?>
                                                 <?php endif; ?>
@@ -534,10 +732,10 @@ require __DIR__ . '/_header.php';
                         <span class="text-secondary"><?php echo $totalFiltered; ?> Produkte — Seite <?php echo $page; ?> von <?php echo $totalPages; ?></span>
                         <ul class="pagination mb-0">
                             <li class="page-item <?php echo $page <= 1 ? 'disabled' : ''; ?>">
-                                <a class="page-link" href="?shop=<?php echo urlencode($shop); ?>&amp;filter=<?php echo urlencode($filter); ?>&amp;page_size=<?php echo $pageSize; ?>&amp;page=<?php echo max(1, $page - 1); ?>">Zurück</a>
+                                <a class="page-link" href="<?php echo $e($urlFor(['page' => max(1, $page - 1)])); ?>">Zurück</a>
                             </li>
                             <li class="page-item <?php echo $page >= $totalPages ? 'disabled' : ''; ?>">
-                                <a class="page-link" href="?shop=<?php echo urlencode($shop); ?>&amp;filter=<?php echo urlencode($filter); ?>&amp;page_size=<?php echo $pageSize; ?>&amp;page=<?php echo min($totalPages, $page + 1); ?>">Weiter</a>
+                                <a class="page-link" href="<?php echo $e($urlFor(['page' => min($totalPages, $page + 1)])); ?>">Weiter</a>
                             </li>
                         </ul>
                     </div>
@@ -563,5 +761,82 @@ require __DIR__ . '/_header.php';
         </div>
     <?php endif; ?>
 </div>
+
+<script>
+    // Sammelimport "Alle anlegen": ruft den Import in kleinen Stapeln auf (action=import_batch), bis nichts mehr
+    // fehlt. Bereits versuchte Produkte werden mitgeschickt (skip), damit ein Fehlschlag nicht endlos wiederholt wird.
+    (function () {
+        var buttons = document.querySelectorAll('[data-bulk-import]');
+        if (!buttons.length) { return; }
+        var csrf = <?php echo json_encode((string) ($_SESSION['connect_csrf'] ?? '')); ?>;
+        var box = document.getElementById('bulk-box');
+        var bar = document.getElementById('bulk-bar');
+        var statusEl = document.getElementById('bulk-status');
+        var countEl = document.getElementById('bulk-count');
+        var errorsEl = document.getElementById('bulk-errors');
+        var stopBtn = document.getElementById('bulk-stop');
+        var reloadBtn = document.getElementById('bulk-reload');
+        var stopped = false;
+
+        stopBtn.addEventListener('click', function () { stopped = true; stopBtn.disabled = true; statusEl.textContent = 'Wird nach dem aktuellen Durchgang angehalten …'; });
+
+        buttons.forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                var dir = btn.dataset.bulkImport, total = parseInt(btn.dataset.count, 10);
+                var msg = 'Alle ' + total + ' Produkte aus ' + btn.dataset.from + ' jetzt in ' + btn.dataset.to + ' anlegen?\n\n'
+                    + (dir === 'shopify' ? 'Sie werden als neue, eigenständige Shopify-Produkte angelegt (ohne Varianten).\n' : 'Es werden echte Artikel angelegt.\n')
+                    + 'Das kann bei großen Beständen einige Minuten dauern – die Seite bitte offen lassen.';
+                if (!window.confirm(msg)) { return; }
+
+                buttons.forEach(function (b) { b.disabled = true; });
+                var done = 0, failed = 0, attempted = [], failures = [];
+                stopped = false;
+                stopBtn.disabled = false;
+                reloadBtn.hidden = true;
+                errorsEl.textContent = '';
+                box.hidden = false;
+                bar.className = 'progress-bar';
+
+                function finish(text, isError) {
+                    statusEl.textContent = text;
+                    bar.className = 'progress-bar ' + (isError ? 'bg-danger' : (failed > 0 ? 'bg-warning' : 'bg-success'));
+                    stopBtn.disabled = true;
+                    reloadBtn.hidden = false;
+                }
+
+                function step() {
+                    if (stopped) { finish('Angehalten: ' + done + ' angelegt' + (failed ? ', ' + failed + ' mit Fehler' : '') + '.', false); return; }
+                    var body = new URLSearchParams();
+                    body.set('action', 'import_batch');
+                    body.set('missing_on', dir);
+                    body.set('skip', JSON.stringify(attempted));
+                    fetch(window.location.href, { method: 'POST', credentials: 'same-origin', headers: { 'X-CSRF-Token': csrf }, body: body })
+                        .then(function (r) { return r.json(); })
+                        .then(function (data) {
+                            if (data.error) { finish('Abgebrochen: ' + data.error, true); return; }
+                            data.results.forEach(function (res) {
+                                attempted.push(res.match);
+                                if (res.success) { done++; } else { failed++; failures.push(res.label + ': ' + res.message); }
+                            });
+                            var processed = done + failed;
+                            bar.style.width = Math.min(100, Math.round(processed / total * 100)) + '%';
+                            countEl.textContent = processed + ' von ' + total;
+                            statusEl.textContent = 'Lege Produkte an …';
+                            errorsEl.innerHTML = '';
+                            failures.slice(-10).forEach(function (line) { var d = document.createElement('div'); d.textContent = line; errorsEl.appendChild(d); });
+                            if (failures.length > 10) { var more = document.createElement('div'); more.textContent = '… und ' + (failures.length - 10) + ' weitere Fehler (Details in den Aktivitäten).'; errorsEl.appendChild(more); }
+                            if (data.remaining <= 0 || data.results.length === 0) {
+                                finish('Fertig: ' + done + ' angelegt' + (failed ? ', ' + failed + ' mit Fehler' : '') + '.', false);
+                            } else {
+                                step();
+                            }
+                        })
+                        .catch(function () { finish('Verbindung unterbrochen nach ' + done + ' angelegten Produkten. Du kannst neu starten – bereits angelegte werden übersprungen.', true); });
+                }
+                step();
+            });
+        });
+    })();
+</script>
 
 <?php require __DIR__ . '/_footer.php'; ?>
