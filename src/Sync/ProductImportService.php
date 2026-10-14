@@ -427,7 +427,7 @@ final class ProductImportService
         // damit der Live-Refresh oben den neuen Bestand nicht ueberschreibt.
         $stockInfo = null;
         if ($targetExternalId !== null) {
-            $stockInfo = $this->writeInitialStock($shop, $context, $sourceRecord, $matchValue, $targetExternalId);
+            $stockInfo = $this->writeInitialStock($shop, $context, $objectCache, $sourceRecord, $matchValue, $targetExternalId);
             if ($stockInfo !== null && $stockInfo['written']) {
                 $objectCache->updateCachedFields($context->targetConnectionId, $context->targetObject->key, $targetExternalId, [$context->targetStockField->key => $stockInfo['quantity']]);
             }
@@ -439,34 +439,60 @@ final class ProductImportService
     }
 
     /**
-     * Schreibt den Shopify-Bestand als Anfangsbestand in einen frisch angelegten Ziel-Artikel.
-     * Nur wenn Shopify den Bestand fuehrt (Richtung shopify_to_target) und ein Standort gewaehlt ist:
-     * fuehrt das Kassensystem, wuerde der Anfangsbestand 0 den Shopify-Bestand beim naechsten
-     * Lagerabgleich ueberschreiben -- dort wird nichts geschrieben. Ein neuer Artikel hat Bestand 0,
-     * das Delta ist daher der Shopify-Bestand selbst. Scheitert das Schreiben, bleibt der Import
-     * gelungen, der Lagerabgleich holt es nach.
+     * Schreibt den Shopify-Bestand als Anfangsbestand in einen frisch angelegten Ziel-Artikel --
+     * in BEIDE Richtungen des Lagerabgleichs: ein neuer Artikel startet mit 0, und wuerde der
+     * Abgleich (fuehrt das Kassensystem) das naechste Mal laufen, setzte er den Shopify-Bestand
+     * auf 0. Der Anfangsbestand ist also die einmalige Uebernahme aus Shopify. Ein neuer Artikel
+     * hat Bestand 0, das Delta ist daher der Shopify-Bestand selbst. Fuehrt das Kassensystem mit
+     * Sicherheitsbestand, kommt dieser dazu (Shopify zeigt Kassenbestand minus Puffer, der
+     * Shopify-Bestand bliebe sonst nicht erhalten).
+     *
+     * Der Shopify-Bestand ist standortbezogen. Stammt der Datensatz aus der Zeit vor der
+     * Standortwahl (_location_id fehlt/anders), wird er hier einmal live nachgeladen. Kann nichts
+     * uebernommen werden, sagt die Rueckgabe warum (statt stillschweigend nichts zu tun).
+     * Scheitert das Schreiben, bleibt der Import gelungen, der Lagerabgleich holt es nach.
      *
      * @param array<string, mixed> $sourceRecord Shopify-Datensatz
-     * @return array{written: bool, quantity: int, message: string}|null null = nichts zu tun
+     * @return array{written: bool, quantity: int, message: string}|null null = nichts zu tun (Bestand 0)
      */
-    private function writeInitialStock(string $shop, ProductMatchContext $context, array $sourceRecord, string $matchValue, string $targetExternalId): ?array
+    private function writeInitialStock(string $shop, ProductMatchContext $context, ObjectCache $objectCache, array $sourceRecord, string $matchValue, string $targetExternalId): ?array
     {
-        if ($context->direction !== 'shopify_to_target' || $context->locationId === null || $context->locationId === '') {
-            return null;
+        $skipped = static fn (string $reason): array => ['written' => false, 'quantity' => 0, 'message' => 'Bestand nicht übernommen: ' . $reason];
+
+        if ($context->locationId === null || $context->locationId === '') {
+            return $skipped('kein Shopify-Standort gewählt (Einstellungen → Lagerbestand).');
         }
 
         $stockKey = $context->shopifyStockField->key;
-        if (!array_key_exists($stockKey, $sourceRecord) || $sourceRecord[$stockKey] === null || $sourceRecord[$stockKey] === '') {
-            return null;
+        $isStale = static fn (array $record): bool => $stockKey === 'location_stock_quantity'
+            && (string) ($record['_location_id'] ?? '') !== (string) $context->locationId;
+
+        if ($isStale($sourceRecord)) {
+            // Datensatz noch ohne/mit anderem Standort geladen: genau dieses Produkt live nachladen
+            try {
+                $identifierKey = ObjectCache::requireIdentifierField($context->shopifyObject)->key;
+                $externalId = (string) ($sourceRecord[$identifierKey] ?? '');
+                if ($externalId !== '' && $objectCache->refreshOne($context->shopifyConnector, $context->shopifyConnectionId, $context->shopifyObject, [$identifierKey => $externalId, 'id' => $externalId])) {
+                    $sourceRecord = $objectCache->getCachedOne($context->shopifyConnectionId, $context->shopifyObject->key, $externalId) ?? $sourceRecord;
+                }
+            } catch (\Throwable $e) {
+                error_log('[ProductImportService] Shopify-Bestand nicht nachladbar: ' . $e->getMessage());
+            }
+            if ($isStale($sourceRecord)) {
+                return $skipped('der Shopify-Bestand konnte nicht für den gewählten Standort gelesen werden – folgt mit dem nächsten Lagerabgleich.');
+            }
         }
-        // Standortbezogener Bestand eines Datensatzes, der noch mit einem anderen Standort geladen wurde: nicht verwenden
-        if ($stockKey === 'location_stock_quantity' && (string) ($sourceRecord['_location_id'] ?? '') !== (string) $context->locationId) {
-            return null;
+
+        if (!array_key_exists($stockKey, $sourceRecord) || $sourceRecord[$stockKey] === null || $sourceRecord[$stockKey] === '') {
+            return $skipped('Shopify führt dieses Produkt am gewählten Standort nicht (oder der Bestand ist unbekannt).');
         }
 
         $quantity = (int) $sourceRecord[$stockKey];
-        if ($quantity === 0) {
+        if ($quantity <= 0) {
             return null;
+        }
+        if ($context->direction === 'target_to_shopify') {
+            $quantity += ShopStockRules::forShop($this->pdo, $shop)['buffer'];
         }
 
         $targetIdentifierField = ObjectCache::requireIdentifierField($context->targetObject);
