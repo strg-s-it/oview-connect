@@ -252,8 +252,13 @@ final class ProductImportService
         // liest (direkt, Lookup, Verkettung, sogar 'derived_price' als
         // Basispreis), ohne Sonderfaelle je Transform-Art.
         foreach (['title', 'sku', 'barcode', 'price'] as $overrideRole) {
-            $overrideValue = trim((string) ($fieldOverrides[$overrideRole] ?? ''));
-            if ($overrideValue === '') {
+            if (!array_key_exists($overrideRole, $fieldOverrides)) {
+                continue;
+            }
+            $overrideValue = trim((string) $fieldOverrides[$overrideRole]);
+            // Leer = bewusst geleert: nur bei SKU/Barcode zulaessig (sonst
+            // wuerde z.B. die Shopify-SKU trotz leerem Feld als Artikelcode gesendet).
+            if ($overrideValue === '' && !in_array($overrideRole, ['sku', 'barcode'], true)) {
                 continue;
             }
             $overrideField = ProductMatchContext::fieldWithComparisonRole($sourceObject, $overrideRole);
