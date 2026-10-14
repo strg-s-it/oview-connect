@@ -838,6 +838,15 @@ final class ProductImportService
             $objectCache->updateCachedFields($context->shopifyConnectionId, $context->shopifyObject->key, $newVariantId, $seedRow);
         }
 
+        // Anfangsbestand: das Produkt hat im Zielsystem (z.B. helloCash) schon Bestand und soll ihn
+        // mitnehmen -- sonst startet die neue Shopify-Variante mit 0, und der naechste Lagerabgleich
+        // (fuehrt Shopify) schriebe diese 0 zurueck ins Zielsystem.
+        $stockInfo = null;
+        if ($newVariantId !== '') {
+            $inventoryItemId = (string) ($writeResult->responseData['data']['result']['productVariants'][0]['inventoryItem']['id'] ?? '');
+            $stockInfo = $this->writeInitialStockToShopify($shop, $context, $objectCache, $sourceRecord, $matchValue, $newVariantId, $inventoryItemId);
+        }
+
         $idSuffix = $newVariantId !== '' ? " (Varianten-ID: {$newVariantId})" : '';
         if ($isNewProduct) {
             $successMessage = $hasRealOption
@@ -847,7 +856,112 @@ final class ProductImportService
             $successMessage = "Als neue Variante des bestehenden Produkts importiert{$idSuffix}.";
         }
 
-        return ['success' => true, 'message' => $successMessage];
+        return ['success' => true, 'message' => $successMessage . ($stockInfo !== null ? ' ' . $stockInfo['message'] : '')];
+    }
+
+    /**
+     * Setzt den Bestand des Zielsystems (z.B. helloCash) als Anfangsbestand der frisch angelegten
+     * Shopify-Variante -- Gegenstueck zu writeInitialStock(). Reihenfolge: Inventar verfolgen
+     * (track_inventory) und am gewaehlten Standort aktivieren (activate_inventory), beides
+     * idempotent und nur wenn die Operationen vorhanden sind (Migration 0100), danach der
+     * bewaehrte Bestands-Schreibweg des Lagerabgleichs ("update", inventorySetQuantities, von 0 aus).
+     * Mit Sicherheitsbestand (fuehrt das Kassensystem) zeigt Shopify Kassenbestand minus Puffer.
+     * Kann nichts uebernommen werden, sagt die Rueckgabe warum. Der Import selbst bleibt gelungen.
+     *
+     * @param array<string, mixed> $sourceRecord Datensatz des Zielsystems (Bestandsfeld per Detail-Abruf frisch)
+     * @return array{written: bool, quantity: int, message: string}|null null = nichts zu tun (Bestand 0)
+     */
+    private function writeInitialStockToShopify(string $shop, ProductMatchContext $context, ObjectCache $objectCache, array $sourceRecord, string $matchValue, string $variantId, string $inventoryItemId): ?array
+    {
+        $skipped = static fn (string $reason): array => ['written' => false, 'quantity' => 0, 'message' => 'Bestand nicht übernommen: ' . $reason];
+
+        if ($context->locationId === null || $context->locationId === '') {
+            return $skipped('kein Shopify-Standort gewählt (Einstellungen → Lagerbestand).');
+        }
+        if ($inventoryItemId === '') {
+            return $skipped('Shopify hat keine Inventar-ID zur neuen Variante geliefert.');
+        }
+
+        $stockKey = $context->targetStockField->key;
+        if (!array_key_exists($stockKey, $sourceRecord) || $sourceRecord[$stockKey] === null || $sourceRecord[$stockKey] === '') {
+            return $skipped('der Bestand im Zielsystem ist unbekannt.');
+        }
+        $quantity = ShopStockRules::shopifyQuantity((int) $sourceRecord[$stockKey], ShopStockRules::forShop($this->pdo, $shop)['buffer'], $context->direction);
+        if ($quantity <= 0) {
+            return null;
+        }
+
+        $connector = $context->shopifyConnector;
+        $objectKey = $context->shopifyObject->key;
+
+        // Vorbereitung: Inventar verfolgen, am Standort aktivieren (fehlende Operation = Schritt entfaellt)
+        foreach ([
+            'track_inventory' => ['inventoryItemId' => $inventoryItemId],
+            'activate_inventory' => ['inventoryItemId' => $inventoryItemId, 'locationId' => $context->locationId],
+        ] as $operation => $data) {
+            if (!$connector instanceof GenericHttpConnector || !$connector->hasOperation($objectKey, $operation)) {
+                continue;
+            }
+            try {
+                $prepared = $connector->write($objectKey, $operation, $data);
+            } catch (\Throwable $e) {
+                ActivityLog::log($this->pdo, $shop, 'shopify', $objectKey, $operation, false, $e->getMessage(), $variantId);
+
+                return $skipped('Vorbereitung in Shopify fehlgeschlagen (' . $e->getMessage() . ').');
+            }
+            ActivityLog::log(
+                $this->pdo,
+                $shop,
+                'shopify',
+                $objectKey,
+                $operation,
+                $prepared->success,
+                $prepared->success ? ($operation === 'track_inventory' ? "Bestandsführung für \"{$matchValue}\" eingeschaltet." : "Am gewählten Standort für \"{$matchValue}\" aktiviert.") : $prepared->message,
+                $variantId,
+                $prepared->requestBody,
+                $prepared->responseBody
+            );
+            if (!$prepared->success) {
+                return $skipped('Vorbereitung in Shopify fehlgeschlagen (' . $prepared->message . ').');
+            }
+        }
+
+        try {
+            $result = $connector->write($objectKey, 'update', [
+                'inventoryItemId' => $inventoryItemId,
+                'locationId' => $context->locationId,
+                'quantity' => $quantity,
+                'changeFromQuantity' => 0,
+            ]);
+        } catch (\Throwable $e) {
+            ActivityLog::log($this->pdo, $shop, 'shopify', $objectKey, 'stock_update', false, $e->getMessage(), $variantId);
+
+            return $skipped('Schreiben nach Shopify fehlgeschlagen (' . $e->getMessage() . ') – folgt mit dem nächsten Lagerabgleich.');
+        }
+        ActivityLog::log(
+            $this->pdo,
+            $shop,
+            'shopify',
+            $objectKey,
+            'stock_update',
+            $result->success,
+            $result->success ? "Anfangsbestand für \"{$matchValue}\": 0 -> {$quantity}." : $result->message,
+            $variantId,
+            $result->requestBody,
+            $result->responseBody
+        );
+        if (!$result->success) {
+            return $skipped('Schreiben nach Shopify fehlgeschlagen (' . $result->message . ') – folgt mit dem nächsten Lagerabgleich.');
+        }
+
+        // Zwischenspeicher mit dem neuen Bestand und dem Standort-Stempel nachziehen
+        $objectCache->updateCachedFields($context->shopifyConnectionId, $objectKey, $variantId, [
+            'inventory_item_id' => $inventoryItemId,
+            $context->shopifyStockField->key => $quantity,
+            '_location_id' => (string) $context->locationId,
+        ]);
+
+        return ['written' => true, 'quantity' => $quantity, 'message' => "Bestand {$quantity} übernommen."];
     }
 
     /**
