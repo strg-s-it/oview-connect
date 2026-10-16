@@ -37,6 +37,19 @@ $e = static fn (?string $s): string => htmlspecialchars((string) $s, ENT_QUOTES)
 $flashMessage = null;
 $flashType = 'info';
 
+// "In Connect anlegen": uebernimmt den Token der alten Welt (wie Shops -> "Token uebernehmen") und
+// springt direkt auf die Umzug-Seite. Schaltet NICHT live (live_in_connect bleibt 0).
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'provision_legacy') {
+    try {
+        $provisioned = (new \Connect\Legacy\ShopProvisioner($pdo, $config))->provisionFromLegacy(trim((string) ($_POST['shop'] ?? '')));
+        header('Location: migrate.php?shop=' . rawurlencode($provisioned['shop']));
+        exit;
+    } catch (\Throwable $ex) {
+        $flashMessage = 'Anlegen in Connect fehlgeschlagen: ' . $ex->getMessage();
+        $flashType = 'danger';
+    }
+}
+
 $directory = new MerchantDirectory($pdo, $config);
 $merchants = $directory->all();
 
@@ -263,7 +276,11 @@ require dirname(__DIR__) . '/app/_header.php';
                             <?php if ($m['world'] !== 'legacy'): ?>
                                 <a href="migrate.php?shop=<?php echo $e(rawurlencode($m['shop'])); ?>" class="btn btn-sm<?php echo $isReady($m) ? ' btn-primary' : ''; ?>">Umzug</a>
                             <?php else: ?>
-                                <a href="shops.php" class="btn btn-sm" title="Zuerst unter Shops „Token übernehmen“">In Connect anlegen</a>
+                                <form method="post" class="m-0 d-inline">
+                                    <input type="hidden" name="action" value="provision_legacy">
+                                    <input type="hidden" name="shop" value="<?php echo $e($m['shop']); ?>">
+                                    <button type="submit" class="btn btn-sm<?php echo $isReady($m) ? ' btn-primary' : ''; ?>" title="Übernimmt den Shopify-Token aus der alten Welt und öffnet danach den Umzug. Schaltet noch nichts live.">In Connect anlegen</button>
+                                </form>
                             <?php endif; ?>
                         </td>
                     </tr>
