@@ -58,6 +58,7 @@ return [
     ['group', 'Konfiguration', [
         ['branding.php', 'Branding'],
         ['config_map.php', 'Landkarte'],
+        ['faq.php', 'FAQ'],
         ['legal_texts.php', 'Rechtstexte'],
     ]],
 ];

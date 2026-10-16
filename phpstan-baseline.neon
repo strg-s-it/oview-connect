@@ -196,6 +196,12 @@ parameters:
 			message: '#^Variable \$app might not be defined\.$#'
 			identifier: variable.undefined
 			count: 2
+			path: public/app/_faq_body.php
+
+		-
+			message: '#^Variable \$app might not be defined\.$#'
+			identifier: variable.undefined
+			count: 2
 			path: public/app/_wishes_body.php
 
 		-

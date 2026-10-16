@@ -104,4 +104,5 @@ return [
     ['status.php?shop=' . urlencode($shop) . $previewSuffix, 'Status'],
     ['billing.php?shop=' . urlencode($shop) . $previewSuffix, 'Abo'],
     ['wishes.php?shop=' . urlencode($shop) . $previewSuffix, 'Wünsche'],
+    ['faq.php?shop=' . urlencode($shop) . $previewSuffix, 'FAQ'],
 ];
