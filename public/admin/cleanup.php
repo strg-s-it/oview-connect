@@ -16,7 +16,7 @@ declare(strict_types=1);
  *   401  Token ungueltig, App deinstalliert         -> entfernen
  *   403  Zugriff verweigert ("Unavailable Shop")    -> meist deaktiviert/gekuendigt, auswaehlbar,
  *                                                     aber nicht vorausgewaehlt
- *   402  Shop eingefroren (Shopify-Rechnung offen)  -> nur beobachten, kann zurueckkommen
+ *   402  Shop eingefroren (Shopify-Rechnung offen)  -> auswaehlbar, aber nicht vorausgewaehlt
  *   423  Shop gesperrt                              -> nur beobachten
  *   kein Token in oview_stores                     -> entfernen (nichts mehr nutzbar)
  *   erreichbar, aber kein aktives Abo              -> auswaehlbar, nicht vorausgewaehlt
@@ -86,7 +86,7 @@ $classify = static function (bool $checked, ?string $error, ?string $subscriptio
             '404' => ['remove', 'bg-red-lt', 'Shop existiert nicht mehr (geschlossen/gelöscht)'],
             '401' => ['remove', 'bg-red-lt', 'App deinstalliert (Token ungültig)'],
             '403' => ['review', 'bg-orange-lt', 'Zugriff verweigert – meist Shop deaktiviert/gekündigt, bitte prüfen'],
-            '402' => ['watch', 'bg-yellow-lt', 'Shop eingefroren (Shopify-Rechnung offen)'],
+            '402' => ['review', 'bg-orange-lt', 'Shop eingefroren (Shopify-Rechnung offen) – kann zurückkommen, bitte prüfen'],
             '423' => ['watch', 'bg-yellow-lt', 'Shop gesperrt'],
             default => ['watch', 'bg-yellow-lt', 'Shopify HTTP ' . $m[1]],
         };
@@ -306,8 +306,8 @@ require dirname(__DIR__) . '/app/_header.php';
     <code>hellocash_binding</code> (helloCash-Anbindung). Grundlage ist die Live-Prüfung unter
     <a href="transition.php">Umstieg → „Berechtigungen jetzt prüfen“</a> (prüft Erreichbarkeit und aktives Abo bei Shopify) – vorher dort prüfen, sonst bleiben Shops „ungeprüft“.
     <strong>Rot</strong> = entfernen empfohlen (Shop geschlossen, App deinstalliert, kein Token mehr oder nur noch die helloCash-Bindung übrig – der Deinstallations-Webhook kam nie an).
-    <strong>Orange</strong> = kein aktives Abo, oder Shopify verweigert den Zugriff (403, meist deaktiviert/gekündigt); auswählbar, aber bitte vorher kurz prüfen.
-    <strong>Gelb</strong> = nur beobachten: eingefrorene Shops (Shopify-Rechnung offen, 402) oder gesperrte können zurückkommen.
+    <strong>Orange</strong> = kein aktives Abo, Shopify verweigert den Zugriff (403, meist deaktiviert/gekündigt) oder der Shop ist eingefroren (402, Shopify-Rechnung offen); auswählbar, aber bitte vorher kurz prüfen.
+    <strong>Gelb</strong> = nur beobachten: gesperrte Shops (423) oder andere Fehler.
 </div>
 
 <?php if ($activityError !== null): ?>
