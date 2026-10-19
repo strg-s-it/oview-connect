@@ -94,6 +94,7 @@ if ($isNew) {
     $formAction = 'messages.php?new=1' . ($templateKey !== '' ? '&template=' . rawurlencode($templateKey) : '');
 } else {
     $message = $id > 0 ? $service->message($id) : null;
+    $formAction = 'messages.php?id=' . $id;
 }
 $directory = new MerchantDirectory($pdo, $config);
 
