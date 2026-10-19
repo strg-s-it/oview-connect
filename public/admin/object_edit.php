@@ -933,7 +933,7 @@ require dirname(__DIR__) . '/app/_header.php';
                                     <td><?php echo htmlspecialchars($opLabels[$operation['operation_type']] ?? $operation['operation_type']); ?></td>
                                     <td><?php echo htmlspecialchars($operation['http_method']); ?></td>
                                     <td><code><?php echo htmlspecialchars($operation['path_template']); ?></code></td>
-                                    <td class="text-end">
+                                    <td class="text-end text-nowrap">
                                         <a href="operation_edit.php?id=<?php echo (int) $operation['id']; ?>" class="btn btn-sm btn-outline-primary">Bearbeiten</a>
                                         <form method="post" class="d-inline" onsubmit="return confirm('Operation wirklich entfernen?');">
                                             <input type="hidden" name="action" value="delete_operation">

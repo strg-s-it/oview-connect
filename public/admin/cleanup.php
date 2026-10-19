@@ -202,8 +202,59 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'remov
     }
 }
 
+// Shops in Connect ohne Abo (plan_status = none: Shopify meldet sicher kein aktives Abo).
+// Betrifft nur Connect-Daten, die alte Welt bleibt unberuehrt. Laeuft ein Shop live in Connect,
+// ist er nicht auswaehlbar (dort entstehen echte Rechnungen) -- erst zurueck zur alten Welt stellen.
+$planColumn = true;
+$noPlanShops = [];
+try {
+    $liveColumn = $pdo->query("SHOW COLUMNS FROM connect_shops LIKE 'live_in_connect'")->fetch() !== false;
+    $loadNoPlan = static fn (): array => $pdo->query(
+        "SELECT s.shop, s.first_seen_at, s.last_seen_at, " . ($liveColumn ? 's.live_in_connect' : '0 AS live_in_connect') . ",
+                (SELECT COUNT(*) FROM connect_connections c WHERE c.shop = s.shop) AS connection_count
+         FROM connect_shops s WHERE s.plan_status = 'none' ORDER BY s.first_seen_at"
+    )->fetchAll();
+    $noPlanShops = $loadNoPlan();
+
+    if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'remove_no_plan') {
+        $pickedNoPlan = array_values(array_unique(array_map('strval', (array) ($_POST['no_plan_shops'] ?? []))));
+        if (empty($_POST['confirm_no_plan'])) {
+            $noPlanFlash = ['warning', 'Bitte bestätigen (Häkchen), dass die Shops endgültig aus Connect entfernt werden sollen.'];
+        } elseif ($pickedNoPlan === []) {
+            $noPlanFlash = ['warning', 'Keine Shops ausgewählt.'];
+        } else {
+            $allowed = [];
+            foreach ($noPlanShops as $row) {
+                $allowed[(string) $row['shop']] = (int) $row['live_in_connect'] === 0;
+            }
+            $removedNoPlan = [];
+            $skippedNoPlan = [];
+            foreach ($pickedNoPlan as $shop) {
+                if (!isset($allowed[$shop])) {
+                    $skippedNoPlan[] = $shop . ': hat (inzwischen) ein Abo oder ist unbekannt';
+                } elseif (!$allowed[$shop]) {
+                    $skippedNoPlan[] = $shop . ': läuft live in Connect';
+                } else {
+                    \Connect\Setup\ShopRemover::remove($pdo, $shop);
+                    ActivityLog::log($pdo, $shop, 'shopify', null, 'cleanup_removed', true, "Shop ohne Abo aus Connect entfernt, ausgelöst von {$adminEmail}.");
+                    $removedNoPlan[] = $shop;
+                }
+            }
+            $noPlanFlash = [
+                $skippedNoPlan === [] ? 'success' : 'warning',
+                count($removedNoPlan) . ' Shop(s) ohne Abo aus Connect entfernt' . ($removedNoPlan !== [] ? ': ' . implode(', ', $removedNoPlan) : '') . '.'
+                    . ($skippedNoPlan !== [] ? ' Nicht entfernt: ' . implode(' · ', $skippedNoPlan) : ''),
+            ];
+            $noPlanShops = $loadNoPlan();
+        }
+        [$flashType, $flashMessage] = $noPlanFlash;
+    }
+} catch (\PDOException) {
+    $planColumn = false; // Migration 0079 fehlt
+}
+
 $candidates = [];
-$counts = ['remove' => 0, 'review' => 0, 'watch' => 0, 'ok' => 0, 'unchecked' => 0];
+$counts =['remove' => 0, 'review' => 0, 'watch' => 0, 'ok' => 0, 'unchecked' => 0];
 foreach ($merchants as $m) {
     if ($m['world'] !== 'legacy') {
         continue;
@@ -337,6 +388,51 @@ require dirname(__DIR__) . '/app/_header.php';
         </div>
     </div>
 </form>
+
+<?php if ($planColumn): ?>
+<form method="post" class="mt-3">
+    <input type="hidden" name="action" value="remove_no_plan">
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title">Shops in Connect ohne Abo (<?php echo count($noPlanShops); ?>)</h3>
+            <div class="card-actions">
+                <button type="button" class="btn btn-sm" onclick="document.querySelectorAll('.np-pick').forEach(function (b) { b.checked = true; })">Alle auswählen</button>
+                <button type="button" class="btn btn-sm" onclick="document.querySelectorAll('.np-pick').forEach(function (b) { b.checked = false; })">Keine auswählen</button>
+            </div>
+        </div>
+        <div class="card-body border-bottom small text-secondary">
+            Shopify meldet für diese Shops kein aktives Abo. Sie haben in Connect nichts verloren. Entfernen löscht nur die Connect-Daten
+            (Connections, Aktivierungen, Webhooks, Protokolle) – die alte Welt bleibt unberührt. Shops, die live in Connect laufen, sind nicht auswählbar
+            (erst unter Shops zurück zur alten Welt stellen). Installiert der Händler die App erneut, beginnt er von vorne.
+        </div>
+        <div class="table-responsive">
+            <table class="table table-vcenter card-table">
+                <thead><tr><th class="w-1"></th><th>Shop</th><th>Connections</th><th>Zuständig</th><th>Dabei seit</th><th>Zuletzt gesehen</th></tr></thead>
+                <tbody>
+                    <?php foreach ($noPlanShops as $row): ?>
+                        <?php $isLiveNoPlan = (int) $row['live_in_connect'] === 1; ?>
+                        <tr>
+                            <td><?php if (!$isLiveNoPlan): ?><input type="checkbox" class="form-check-input np-pick" name="no_plan_shops[]" value="<?php echo $e($row['shop']); ?>" aria-label="<?php echo $e($row['shop']); ?> entfernen"><?php endif; ?></td>
+                            <td><?php echo $e($row['shop']); ?></td>
+                            <td><?php echo (int) $row['connection_count']; ?></td>
+                            <td><span class="badge <?php echo $isLiveNoPlan ? 'bg-green-lt' : 'bg-secondary-lt'; ?>"><?php echo $isLiveNoPlan ? 'Connect (live)' : 'Alte Welt'; ?></span></td>
+                            <td class="small text-secondary"><?php echo $e(substr((string) $row['first_seen_at'], 0, 10)); ?> (<?php echo (int) floor((time() - (int) strtotime((string) $row['first_seen_at'])) / 86400); ?> Tage)</td>
+                            <td class="small text-secondary"><?php echo $e(substr((string) $row['last_seen_at'], 0, 16)); ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                    <?php if ($noPlanShops === []): ?>
+                        <tr><td colspan="6" class="text-secondary">Alle Shops in Connect haben ein Abo (oder wurden noch nicht abgefragt).</td></tr>
+                    <?php endif; ?>
+                </tbody>
+            </table>
+        </div>
+        <div class="card-body border-top d-grid gap-2">
+            <label class="form-check mb-0"><input type="checkbox" class="form-check-input" name="confirm_no_plan" value="1"> <span class="form-check-label">Die ausgewählten Shops endgültig aus Connect entfernen</span></label>
+            <div><button type="submit" class="btn btn-danger" <?php echo $noPlanShops === [] ? 'disabled' : ''; ?>>Ausgewählte entfernen</button></div>
+        </div>
+    </div>
+</form>
+<?php endif; ?>
 <script>
     // Auswahl setzen: selector = welche Haekchen an, null = alle aus
     function clSelect(selector) {

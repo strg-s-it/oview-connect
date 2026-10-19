@@ -75,23 +75,26 @@ $readFilter = static function (array $source): array {
     ];
 };
 
-// ---- Neuer Entwurf -------------------------------------------------------------------
-if (isset($_GET['new'])) {
-    $template = $templates[(string) ($_GET['template'] ?? '')] ?? null;
-    $pdo->prepare('INSERT INTO connect_messages (kind, subject, body, in_app, filter, created_by) VALUES (:kind, :subject, :body, :in_app, :filter, :by)')
-        ->execute([
-            'kind' => $template['kind'] ?? 'service',
-            'subject' => $template['subject'] ?? 'oView: ',
-            'body' => $template['body'] ?? "Hallo {firma},\n\n\n\nLiebe Grüße\ndein oView-Team",
-            'in_app' => 1,
-            'filter' => json_encode(($template['filter'] ?? []) + ['world' => ['live', 'pending', 'legacy']], JSON_UNESCAPED_UNICODE),
-            'by' => $adminEmail,
-        ]);
-    header('Location: messages.php?id=' . (int) $pdo->lastInsertId());
-    exit;
+// ---- Neue Nachricht: erst beim ersten Speichern/Testen/Senden in der DB angelegt -----------
+// Beim blossen Aufruf (?new=1) entsteht nur ein nicht gespeicherter Entwurf (id 0).
+$isNew = isset($_GET['new']) && $id === 0;
+$formAction = 'messages.php';
+if ($isNew) {
+    $templateKey = (string) ($_GET['template'] ?? '');
+    $template = $templates[$templateKey] ?? null;
+    $message = [
+        'id' => 0,
+        'kind' => $template['kind'] ?? 'service',
+        'subject' => $template['subject'] ?? 'oView: ',
+        'body' => $template['body'] ?? "Hallo {firma},\n\n\n\nLiebe Grüße\ndein oView-Team",
+        'in_app' => 1,
+        'filter' => json_encode(($template['filter'] ?? []) + ['world' => ['live', 'pending', 'legacy']], JSON_UNESCAPED_UNICODE),
+        'status' => 'draft',
+    ];
+    $formAction = 'messages.php?new=1' . ($templateKey !== '' ? '&template=' . rawurlencode($templateKey) : '');
+} else {
+    $message = $id > 0 ? $service->message($id) : null;
 }
-
-$message = $id > 0 ? $service->message($id) : null;
 $directory = new MerchantDirectory($pdo, $config);
 
 // ---- Aktionen am Entwurf -------------------------------------------------------------
@@ -103,7 +106,9 @@ if ($message !== null && $message['status'] === 'draft' && $_SERVER['REQUEST_MET
     $body = trim((string) ($_POST['body'] ?? ''));
 
     if ($action === 'delete') {
-        $pdo->prepare("DELETE FROM connect_messages WHERE id = :id AND status = 'draft'")->execute(['id' => $id]);
+        if ($id > 0) {
+            $pdo->prepare("DELETE FROM connect_messages WHERE id = :id AND status = 'draft'")->execute(['id' => $id]);
+        }
         header('Location: messages.php');
         exit;
     }
@@ -111,6 +116,12 @@ if ($message !== null && $message['status'] === 'draft' && $_SERVER['REQUEST_MET
         $flashMessage = 'Betreff und Text dürfen nicht leer sein.';
         $flashType = 'danger';
     } else {
+        if ($id === 0) {
+            $pdo->prepare('INSERT INTO connect_messages (kind, subject, body, in_app, filter, created_by) VALUES (:kind, :subject, :body, :in_app, :filter, :by)')
+                ->execute(['kind' => $kind, 'subject' => $subject, 'body' => $body, 'in_app' => 1, 'filter' => json_encode($filter), 'by' => $adminEmail]);
+            $id = (int) $pdo->lastInsertId();
+            $formAction = 'messages.php?id=' . $id;
+        }
         $pdo->prepare('UPDATE connect_messages SET kind = :kind, subject = :subject, body = :body, in_app = :in_app, filter = :filter WHERE id = :id')
             ->execute(['kind' => $kind, 'subject' => $subject, 'body' => $body, 'in_app' => isset($_POST['in_app']) ? 1 : 0, 'filter' => json_encode($filter), 'id' => $id]);
         $message = $service->message($id);
@@ -278,6 +289,17 @@ require dirname(__DIR__) . '/app/_header.php';
     $all = $matches = $recipients = $systems = [];
     $preview = $rendered = null;
     $withEmail = 0;
+    // Letzte gesendete Nachricht je Shop (wie auf der Umstieg-Seite)
+    $lastMessages = [];
+    try {
+        foreach ($pdo->query(
+            "SELECT r.shop, MAX(r.sent_at) AS last_sent, COUNT(*) AS sent FROM connect_message_recipients r WHERE r.status = 'sent' GROUP BY r.shop"
+        )->fetchAll() as $lastRow) {
+            $lastMessages[(string) $lastRow['shop']] = $lastRow;
+        }
+    } catch (\PDOException) {
+        // Migration 0082 fehlt
+    }
     try {
         $all = $directory->all();
         $matches = MerchantDirectory::filter($all, $filter);
@@ -301,7 +323,10 @@ require dirname(__DIR__) . '/app/_header.php';
         <div class="alert alert-warning"><?php echo $e($directory->legacyError()); ?></div>
     <?php endif; ?>
 
-    <form method="post">
+    <form method="post" action="<?php echo $e($formAction); ?>">
+    <?php if ($id === 0): ?>
+        <div class="alert alert-info">Noch nicht gespeichert – der Entwurf wird erst beim ersten Speichern, Testen oder Senden angelegt.</div>
+    <?php endif; ?>
     <div class="row row-cards">
         <div class="col-lg-6">
             <div class="card mb-3">
@@ -417,7 +442,7 @@ require dirname(__DIR__) . '/app/_header.php';
                 </div>
                 <div class="table-responsive" style="max-height: 420px; overflow-y: auto;">
                     <table class="table table-vcenter card-table table-sm">
-                        <thead><tr><th class="w-1"></th><th>Shop</th><th>Welt</th><th>Adresse</th><th>Abo</th><th>Berechtigungen</th><th>helloCash-Token</th></tr></thead>
+                        <thead><tr><th class="w-1"></th><th>Shop</th><th>Welt</th><th>Adresse</th><th>Abo</th><th>Berechtigungen</th><th>helloCash-Token</th><th>Letzte Nachricht</th></tr></thead>
                         <tbody>
                             <?php foreach ($matches as $m): ?>
                                 <?php $excluded = in_array($m['shop'], $filter['exclude'], true); ?>
@@ -436,10 +461,12 @@ require dirname(__DIR__) . '/app/_header.php';
                                     <td class="small"><?php echo $e($m['plan_label']); ?></td>
                                     <td class="small"><?php echo $m['scopes_missing'] === null ? '<span class="text-secondary">unbekannt</span>' : ($m['scopes_missing'] === [] ? '<span class="text-success">vollständig</span>' : '<span class="text-danger">fehlen: ' . $e(implode(', ', $m['scopes_missing'])) . '</span>'); ?></td>
                                     <td class="small"><?php echo ['ok' => '<span class="text-success">neu, geprüft</span>', 'missing' => '<span class="text-danger">unvollständig</span>', 'unknown' => '<span class="text-secondary">offen</span>'][$m['token'] ?? 'unknown'] ?? ''; ?></td>
+                                    <?php $lastSent = $lastMessages[$m['shop']] ?? null; ?>
+                                    <td class="small text-secondary"><?php echo $lastSent !== null ? $e(substr((string) $lastSent['last_sent'], 0, 10)) . ((int) $lastSent['sent'] > 1 ? ' (' . (int) $lastSent['sent'] . ' gesamt)' : '') : '–'; ?></td>
                                 </tr>
                             <?php endforeach; ?>
                             <?php if ($matches === []): ?>
-                                <tr><td colspan="7" class="text-secondary">Kein Shop passt zu den Filtern.</td></tr>
+                                <tr><td colspan="8" class="text-secondary">Kein Shop passt zu den Filtern.</td></tr>
                             <?php endif; ?>
                         </tbody>
                     </table>

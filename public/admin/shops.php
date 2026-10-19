@@ -89,27 +89,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'remov
         $bridgeMessage = 'Kein Shop angegeben.';
         $bridgeMessageType = 'danger';
     } else {
-        // connect_lookup_tables bewusst NICHT hier geloescht: seit der
-        // Mapping-Vorlagen-Umstellung (Migration 0020) sind Lookup-Tabellen
-        // global (kein "shop"-Bezug mehr) und koennen von anderen Shops
-        // mitgenutzt werden -- ein einzelner Shop darf sie beim Entfernen
-        // nicht fuer alle anderen mit wegreissen.
-        // Aktivierungen zuerst ausdruecklich (wie PrivacyService::eraseShop), nicht nur ueber die Connections
-        $pdo->prepare('DELETE FROM connect_sync_mappings WHERE shop = :shop')->execute(['shop' => $shopToRemove]);
-        $pdo->prepare('DELETE FROM connect_connections WHERE shop = :shop')->execute(['shop' => $shopToRemove]);
-        $pdo->prepare('DELETE FROM connect_webhook_events WHERE shop = :shop')->execute(['shop' => $shopToRemove]);
-        // Zustimmungen bleiben als Nachweis (3 Jahre, Migration 0077), nur markiert
-        \Connect\Setup\LegalTexts::markShopDeleted($pdo, $shopToRemove);
-        // Protokolle und Betriebsdaten dieses Shops (vorher blieben sie stehen und tauchten nach einer
-        // Neuinstallation wieder auf). Dieselbe Liste wie beim Datenschutz-Webhook shop/redact, dort
-        // steht auch, was bewusst erhalten bleibt. Fehlende Tabellen (Migration) werden uebersprungen.
-        foreach (\Connect\Privacy\PrivacyService::SHOP_DATA_TABLES as $shopTable) {
-            try {
-                $pdo->prepare("DELETE FROM {$shopTable} WHERE shop = :shop")->execute(['shop' => $shopToRemove]);
-            } catch (\PDOException) {
-            }
-        }
-        $pdo->prepare('DELETE FROM connect_shops WHERE shop = :shop')->execute(['shop' => $shopToRemove]);
+        \Connect\Setup\ShopRemover::remove($pdo, $shopToRemove);
 
         $bridgeMessage = "Shop \"{$shopToRemove}\" und alle zugehörigen Daten wurden entfernt.";
         $bridgeMessageType = 'success';
@@ -290,7 +270,7 @@ require dirname(__DIR__) . '/app/_header.php';
                                 <th>Zuständig</th>
                                 <th>Ziel-System (Lagerbestand/Aufträge)</th>
                                 <th>Zuletzt gesehen</th>
-                                <th class="w-1"></th>
+                                <th></th>
                             </tr>
                         </thead>
                         <tbody>
@@ -321,7 +301,7 @@ require dirname(__DIR__) . '/app/_header.php';
                                                 ? 'Shop "' . $row['shop'] . '" wieder der ALTEN Welt zuordnen? Connect verarbeitet ihn dann nicht mehr.'
                                                 : 'Shop "' . $row['shop'] . '" auf CONNECT umstellen? Ab dann ist Connect für diesen Shop zuständig, die alte Welt verarbeitet ihn nicht mehr.';
                                             ?>
-                                            <form method="post" class="d-flex align-items-center gap-2" onsubmit="return confirm(<?php echo htmlspecialchars(json_encode($liveConfirmText, JSON_UNESCAPED_UNICODE), ENT_QUOTES); ?>);">
+                                            <form method="post" class="d-flex align-items-center gap-2 m-0 text-nowrap" onsubmit="return confirm(<?php echo htmlspecialchars(json_encode($liveConfirmText, JSON_UNESCAPED_UNICODE), ENT_QUOTES); ?>);">
                                                 <input type="hidden" name="action" value="set_live_in_connect">
                                                 <input type="hidden" name="shop" value="<?php echo htmlspecialchars($row['shop']); ?>">
                                                 <input type="hidden" name="live" value="<?php echo $isLive ? '0' : '1'; ?>">
@@ -358,15 +338,17 @@ require dirname(__DIR__) . '/app/_header.php';
                                         <?php endforeach; ?>
                                     </td>
                                     <td class="text-secondary"><?php echo htmlspecialchars((string) $row['last_seen_at']); ?></td>
-                                    <td class="text-end">
+                                    <td class="text-nowrap">
+                                        <div class="d-flex gap-2 justify-content-end">
                                         <a href="connections.php?shop=<?php echo urlencode($row['shop']); ?>" class="btn btn-sm btn-outline-primary">
                                             Ansehen
                                         </a>
-                                        <form method="post" class="d-inline" onsubmit="return confirm('Shop \'<?php echo htmlspecialchars(addslashes($row['shop'])); ?>\' und ALLE zugehörigen Connect-Daten (Connections, Webhooks, Lookup-Tabellen) unwiderruflich entfernen?');">
+                                        <form method="post" class="m-0" onsubmit="return confirm('Shop \'<?php echo htmlspecialchars(addslashes($row['shop'])); ?>\' und ALLE zugehörigen Connect-Daten (Connections, Webhooks, Lookup-Tabellen) unwiderruflich entfernen?');">
                                             <input type="hidden" name="action" value="remove_shop">
                                             <input type="hidden" name="shop" value="<?php echo htmlspecialchars($row['shop']); ?>">
                                             <button type="submit" class="btn btn-sm btn-outline-danger">Entfernen</button>
                                         </form>
+                                        </div>
                                     </td>
                                 </tr>
                             <?php endforeach; ?>
