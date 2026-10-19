@@ -9,6 +9,7 @@ use Connect\Security\Crypto;
 use Connect\Setup\Branding;
 use Connect\Setup\LegalTexts;
 use Connect\Shopify\ScopeCheck;
+use Connect\Sync\ActivityLog;
 use PDO;
 use PHPMailer\PHPMailer\PHPMailer;
 
@@ -118,6 +119,17 @@ final class MessageService
                 'error' => $reason,
             ]);
             $reason === null ? $queued++ : $skipped++;
+            ActivityLog::log(
+                $this->pdo,
+                (string) $m['shop'],
+                null,
+                null,
+                'message_queued',
+                $reason === null,
+                $reason === null
+                    ? 'Nachricht "' . $message['subject'] . '" zum Versand an ' . $m['email'] . ' freigegeben.'
+                    : 'Nachricht "' . $message['subject'] . '" nicht versendet: ' . $reason . '.'
+            );
         }
         $this->pdo->prepare("UPDATE connect_messages SET status = 'queued', queued_at = NOW(), recipient_count = :n WHERE id = :id")
             ->execute(['n' => count($merchants), 'id' => $messageId]);
@@ -176,6 +188,17 @@ final class MessageService
                 $this->pdo->prepare('UPDATE connect_message_recipients SET status = :status, error = :error, sent_at = NOW() WHERE id = :id')
                     ->execute(['status' => $error === null ? 'sent' : 'failed', 'error' => $error !== null ? mb_substr($error, 0, 250) : null, 'id' => (int) $row['id']]);
                 $error === null ? $result['sent']++ : $result['failed']++;
+                ActivityLog::log(
+                    $this->pdo,
+                    (string) $row['shop'],
+                    null,
+                    null,
+                    $error === null ? 'message_sent' : 'message_failed',
+                    $error === null,
+                    $error === null
+                        ? 'Nachricht "' . $message['subject'] . '" an ' . $row['email'] . ' gesendet.'
+                        : 'Nachricht "' . $message['subject'] . '" an ' . $row['email'] . ' fehlgeschlagen: ' . $error
+                );
             }
 
             // Fertige Nachrichten abschliessen
