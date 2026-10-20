@@ -255,35 +255,46 @@ try {
 }
 
 /**
- * Eine Statuszeile (Badge + Hinweis) fuer eine Connection oder "–", wenn es keine gibt.
+ * Kompakter Status-Chip fuer eine Connection (gruen = ok, rot = Fehler, grau = nicht geprueft).
+ * Details (Zeitpunkt, Fehlertext) im Tooltip. Ohne Connection: leer.
  *
  * @param array<string, mixed>|null $connection
  */
-$healthBadge = static function (string $name, ?array $connection): string {
+$healthChip = static function (string $name, ?array $connection): string {
     if ($connection === null) {
-        return '<div class="small text-secondary text-nowrap">' . htmlspecialchars($name) . ': –</div>';
+        return '';
     }
     $status = $connection['health_status'];
-    $since = $connection['health_since'] !== null ? (string) $connection['health_since'] : null;
+    $checked = $connection['health_checked_at'] !== null ? date('d.m. H:i', (int) strtotime((string) $connection['health_checked_at'])) : null;
     if ($status === 'ok') {
-        $badge = '<span class="badge bg-green-lt">ok</span>';
-        $hint = $connection['health_checked_at'] !== null ? 'geprüft ' . date('H:i', (int) strtotime((string) $connection['health_checked_at'])) : '';
-        $title = '';
+        $class = 'bg-green-lt';
+        $dot = '●';
+        $title = 'In Ordnung' . ($checked !== null ? ', geprüft ' . $checked : '');
     } elseif ($status === 'error') {
-        $badge = '<span class="badge bg-red-lt">Fehler</span>';
-        $hint = $since !== null ? 'seit ' . date('d.m. H:i', (int) strtotime($since)) : '';
-        $title = (string) ($connection['health_message'] ?? '');
+        $since = $connection['health_since'] !== null ? date('d.m. H:i', (int) strtotime((string) $connection['health_since'])) : '?';
+        $class = 'bg-red-lt';
+        $dot = '●';
+        $title = 'Fehler seit ' . $since . ': ' . (string) ($connection['health_message'] ?? '');
     } else {
-        $badge = '<span class="badge bg-secondary-lt">nicht geprüft</span>';
-        $hint = '';
-        $title = '';
+        $class = 'bg-secondary-lt';
+        $dot = '○';
+        $title = 'Noch nicht geprüft';
     }
 
-    return '<div class="small text-nowrap"' . ($title !== '' ? ' title="' . htmlspecialchars($title) . '"' : '') . '>'
-        . htmlspecialchars($name) . ': ' . $badge . ($hint !== '' ? ' <span class="text-secondary">' . htmlspecialchars($hint) . '</span>' : '') . '</div>'
-        . ($status === 'error' && $title !== '' ? '<div class="small text-danger" style="max-width:240px;white-space:normal">' . htmlspecialchars(mb_strimwidth($title, 0, 110, '…')) . '</div>' : '');
+    return '<span class="badge ' . $class . ' me-1" title="' . htmlspecialchars($title) . '">' . $dot . ' ' . htmlspecialchars($name) . '</span>';
 };
 
+// Shops mit einer fehlerhaften Verbindung zuerst (stabil: sonst bleibt die Reihenfolge "zuletzt gesehen")
+$problemShops = [];
+foreach ($healthByShop as $healthShop => $healthConnections) {
+    foreach ($healthConnections as $healthConnection) {
+        if ($healthConnection['health_status'] === 'error') {
+            $problemShops[(string) $healthShop] = true;
+        }
+    }
+}
+usort($shops, static fn (array $x, array $y): int => (int) isset($problemShops[$y['shop']]) <=> (int) isset($problemShops[$x['shop']]));
+$liveShopCount = count(array_filter($shops, static fn (array $x): bool => (int) $x['live_in_connect'] === 1));
 $pageTitle = 'Shops';
 $homeUrl = 'shops.php';
 $adminNavItems = require __DIR__ . '/_nav.php';
@@ -299,94 +310,121 @@ require dirname(__DIR__) . '/app/_header.php';
 <div class="row row-cards">
     <div class="col-12">
         <div class="card">
-            <div class="card-header">
+            <div class="card-header flex-wrap gap-2">
                 <h3 class="card-title">Shops, die Connect nutzen</h3>
+                <div class="d-flex flex-wrap align-items-center gap-2 ms-auto">
+                    <span class="badge bg-secondary-lt"><?php echo count($shops); ?> Shops</span>
+                    <span class="badge bg-green-lt"><?php echo $liveShopCount; ?> in Connect</span>
+                    <?php if ($problemShops !== []): ?>
+                        <span class="badge bg-red-lt"><?php echo count($problemShops); ?> mit Verbindungsproblem</span>
+                    <?php endif; ?>
+                    <input type="search" id="shop-filter" class="form-control form-control-sm" style="width:180px" placeholder="Shop suchen …" autocomplete="off">
+                    <label class="form-check form-check-inline m-0 small">
+                        <input type="checkbox" id="shop-problems-only" class="form-check-input">
+                        <span class="form-check-label">nur Probleme</span>
+                    </label>
+                </div>
             </div>
             <?php if (count($shops) === 0): ?>
                 <div class="card-body text-secondary">Noch kein Shop erfasst.</div>
             <?php else: ?>
                 <div class="table-responsive">
-                    <table class="table table-vcenter card-table">
+                    <table class="table table-vcenter card-table" id="shop-table">
                         <thead>
                             <tr>
                                 <th>Shop</th>
-                                <th>Connections</th>
-                                <th>Abo</th>
                                 <th>Zuständig</th>
                                 <th>Verbindung</th>
-                                <th>Ziel-System (Lagerbestand/Aufträge)</th>
-                                <th>Zuletzt gesehen</th>
+                                <th>Ziel-System</th>
                                 <th></th>
                             </tr>
                         </thead>
                         <tbody>
                             <?php foreach ($shops as $row): ?>
-                                <tr>
-                                    <td><?php echo htmlspecialchars($row['shop']); ?></td>
-                                    <td><?php echo (int) $row['connection_count']; ?></td>
-                                    <td class="small">
-                                        <?php
-                                        $planRow = $plansByShop[$row['shop']] ?? null;
-                                        if ($planRow === null || $planRow['plan_status'] === null): ?>
-                                            <span class="text-secondary">unbekannt</span>
-                                        <?php elseif ($planRow['plan_status'] === 'none'): ?>
-                                            <?php $sinceDays = (int) floor((time() - (int) strtotime((string) $row['first_seen_at'])) / 86400); ?>
-                                            <span class="badge bg-orange-lt">kein Abo</span>
-                                            <div class="text-secondary">seit <?php echo $sinceDays; ?> Tagen dabei</div>
-                                        <?php else: ?>
-                                            <?php echo htmlspecialchars($planRow['plan'] !== null && isset(\Connect\Billing\Plans::PLANS[(string) $planRow['plan']]) ? \Connect\Billing\Plans::PLANS[(string) $planRow['plan']]['name'] : 'aktiv (Sondervereinbarung)'); ?>
-                                        <?php endif; ?>
+                                <?php
+                                $hasProblem = isset($problemShops[$row['shop']]);
+                                $planRow = $plansByShop[$row['shop']] ?? null;
+                                if ($planRow === null || $planRow['plan_status'] === null) {
+                                    $planText = 'Abo unbekannt';
+                                } elseif ($planRow['plan_status'] === 'none') {
+                                    $planText = 'kein Abo (seit ' . (int) floor((time() - (int) strtotime((string) $row['first_seen_at'])) / 86400) . ' Tagen dabei)';
+                                } else {
+                                    $planText = $planRow['plan'] !== null && isset(\Connect\Billing\Plans::PLANS[(string) $planRow['plan']]) ? \Connect\Billing\Plans::PLANS[(string) $planRow['plan']]['name'] : 'aktiv (Sondervereinbarung)';
+                                }
+                                $isLive = (int) $row['live_in_connect'] === 1;
+
+                                $shopConnections = $healthByShop[$row['shop']] ?? [];
+                                $shopifyHealth = null;
+                                $targetHealth = null;
+                                foreach ($shopConnections as $healthConnection) {
+                                    if ($healthConnection['type_key'] === 'shopify' && $shopifyHealth === null) {
+                                        $shopifyHealth = $healthConnection;
+                                    }
+                                    if ($row['target_connection_id'] !== null && (int) $row['target_connection_id'] === (int) $healthConnection['id']) {
+                                        $targetHealth = $healthConnection;
+                                    }
+                                }
+                                $firstError = null;
+                                foreach ([$shopifyHealth, $targetHealth] as $candidate) {
+                                    if ($candidate !== null && $candidate['health_status'] === 'error' && $firstError === null) {
+                                        $firstError = $candidate;
+                                    }
+                                }
+                                ?>
+                                <tr data-shop="<?php echo htmlspecialchars(strtolower((string) $row['shop'])); ?>" data-problem="<?php echo $hasProblem ? '1' : '0'; ?>"<?php echo $hasProblem ? ' style="box-shadow: inset 3px 0 0 #d63939"' : ''; ?>>
+                                    <td>
+                                        <a href="connections.php?shop=<?php echo urlencode($row['shop']); ?>" class="fw-bold text-reset text-decoration-none"><?php echo htmlspecialchars($row['shop']); ?></a>
+                                        <div class="small text-secondary"><?php echo htmlspecialchars($planText); ?></div>
+                                        <div class="small text-secondary">
+                                            <?php echo (int) $row['connection_count']; ?> Connections ·
+                                            gesehen <?php echo $row['last_seen_at'] !== null ? htmlspecialchars(date('d.m. H:i', (int) strtotime((string) $row['last_seen_at']))) : '–'; ?>
+                                        </div>
                                     </td>
                                     <td>
                                         <?php if (!$hasLiveColumn): ?>
                                             <span class="badge bg-yellow-lt" title="php connect/bin/install.php ausführen">Migration 0050 fehlt</span>
                                         <?php else: ?>
                                             <?php
-                                            $isLive = (int) $row['live_in_connect'] === 1;
                                             $liveConfirmText = $isLive
                                                 ? 'Shop "' . $row['shop'] . '" wieder der ALTEN Welt zuordnen? Connect verarbeitet ihn dann nicht mehr.'
                                                 : 'Shop "' . $row['shop'] . '" auf CONNECT umstellen? Ab dann ist Connect für diesen Shop zuständig, die alte Welt verarbeitet ihn nicht mehr.';
                                             ?>
-                                            <form method="post" class="d-flex align-items-center gap-2 m-0 text-nowrap" onsubmit="return confirm(<?php echo htmlspecialchars(json_encode($liveConfirmText, JSON_UNESCAPED_UNICODE), ENT_QUOTES); ?>);">
+                                            <div>
+                                                <span class="badge <?php echo $isLive ? 'bg-green-lt' : 'bg-secondary-lt'; ?>"><?php echo $isLive ? 'Connect' : 'Alte Welt'; ?></span>
+                                                <?php if ($row['live_changed_at'] !== null): ?>
+                                                    <span class="small text-secondary">seit <?php echo htmlspecialchars(date('d.m.', (int) strtotime((string) $row['live_changed_at']))); ?></span>
+                                                <?php endif; ?>
+                                            </div>
+                                            <form method="post" class="m-0 mt-1" onsubmit="return confirm(<?php echo htmlspecialchars(json_encode($liveConfirmText, JSON_UNESCAPED_UNICODE), ENT_QUOTES); ?>);">
                                                 <input type="hidden" name="action" value="set_live_in_connect">
                                                 <input type="hidden" name="shop" value="<?php echo htmlspecialchars($row['shop']); ?>">
                                                 <input type="hidden" name="live" value="<?php echo $isLive ? '0' : '1'; ?>">
-                                                <span class="badge <?php echo $isLive ? 'bg-green-lt' : 'bg-secondary-lt'; ?>"><?php echo $isLive ? 'Connect' : 'Alte Welt'; ?></span>
-                                                <button type="submit" class="btn btn-sm <?php echo $isLive ? 'btn-outline-secondary' : 'btn-outline-success'; ?>">
-                                                    <?php echo $isLive ? 'Zurück zur alten Welt' : 'In Connect aktivieren'; ?>
+                                                <button type="submit" class="btn btn-sm py-0 <?php echo $isLive ? 'btn-link text-secondary' : 'btn-outline-success'; ?>">
+                                                    <?php echo $isLive ? 'Zur alten Welt' : 'In Connect aktivieren'; ?>
                                                 </button>
                                             </form>
-                                            <?php if ($row['live_changed_at'] !== null): ?>
-                                                <div class="text-secondary small mt-1">seit <?php echo htmlspecialchars((string) $row['live_changed_at']); ?></div>
-                                            <?php endif; ?>
                                         <?php endif; ?>
                                     </td>
                                     <td>
                                         <?php if (!$healthAvailable): ?>
                                             <span class="badge bg-yellow-lt" title="php connect/bin/install.php ausführen">Migration 0105 fehlt</span>
                                         <?php else: ?>
-                                            <?php
-                                            $shopConnections = $healthByShop[$row['shop']] ?? [];
-                                            $shopifyHealth = null;
-                                            $targetHealth = null;
-                                            foreach ($shopConnections as $healthConnection) {
-                                                if ($healthConnection['type_key'] === 'shopify' && $shopifyHealth === null) {
-                                                    $shopifyHealth = $healthConnection;
-                                                }
-                                                if ($row['target_connection_id'] !== null && (int) $row['target_connection_id'] === (int) $healthConnection['id']) {
-                                                    $targetHealth = $healthConnection;
-                                                }
-                                            }
-                                            echo $healthBadge('Shopify', $shopifyHealth);
-                                            echo $healthBadge($targetHealth !== null ? (string) $targetHealth['type_name'] : 'Ziel', $targetHealth);
-                                            ?>
+                                            <div class="text-nowrap">
+                                                <?php echo $healthChip('Shopify', $shopifyHealth); ?>
+                                                <?php echo $healthChip($targetHealth !== null ? (string) $targetHealth['type_name'] : 'Ziel', $targetHealth); ?>
+                                            </div>
+                                            <?php if ($firstError !== null): ?>
+                                                <div class="small text-danger mt-1" style="max-width:230px" title="<?php echo htmlspecialchars((string) ($firstError['health_message'] ?? '')); ?>">
+                                                    <?php echo htmlspecialchars(mb_strimwidth(preg_replace('/^Verbindung fehlgeschlagen:\s*/', '', (string) ($firstError['health_message'] ?? '')) ?? '', 0, 70, '…')); ?>
+                                                </div>
+                                            <?php endif; ?>
                                         <?php endif; ?>
                                     </td>
-                                    <td>
-                                        <form method="post" class="d-flex gap-1">
+                                    <td style="min-width:200px">
+                                        <form method="post" class="m-0">
                                             <input type="hidden" name="action" value="set_target_connection">
                                             <input type="hidden" name="shop" value="<?php echo htmlspecialchars($row['shop']); ?>">
-                                            <select name="target_connection_id" class="form-select form-select-sm" onchange="this.form.submit()">
+                                            <select name="target_connection_id" class="form-select form-select-sm" style="max-width:240px" onchange="this.form.submit()">
                                                 <option value="">-- keine --</option>
                                                 <?php foreach (($connectionsByShop[$row['shop']] ?? []) as $connectionOption): ?>
                                                     <option value="<?php echo (int) $connectionOption['id']; ?>" <?php echo ((int) $row['target_connection_id'] === (int) $connectionOption['id']) ? 'selected' : ''; ?>>
@@ -399,22 +437,19 @@ require dirname(__DIR__) . '/app/_header.php';
                                             <?php if ((int) $row['target_connection_id'] === (int) $connectionOption['id']): ?>
                                                 <?php $accountSummary = \Connect\Setup\ConnectionAccount::summary($connectionOption['config'] ?? null); ?>
                                                 <?php if ($accountSummary !== ''): ?>
-                                                    <div class="text-secondary small mt-1"><?php echo htmlspecialchars($accountSummary); ?></div>
+                                                    <div class="text-secondary small mt-1 text-truncate" style="max-width:240px" title="<?php echo htmlspecialchars($accountSummary); ?>"><?php echo htmlspecialchars($accountSummary); ?></div>
                                                 <?php endif; ?>
                                             <?php endif; ?>
                                         <?php endforeach; ?>
                                     </td>
-                                    <td class="text-secondary"><?php echo htmlspecialchars((string) $row['last_seen_at']); ?></td>
-                                    <td class="text-nowrap">
-                                        <div class="d-flex gap-2 justify-content-end">
-                                        <a href="connections.php?shop=<?php echo urlencode($row['shop']); ?>" class="btn btn-sm btn-outline-primary">
-                                            Ansehen
-                                        </a>
-                                        <form method="post" class="m-0" onsubmit="return confirm('Shop \'<?php echo htmlspecialchars(addslashes($row['shop'])); ?>\' und ALLE zugehörigen Connect-Daten (Connections, Webhooks, Lookup-Tabellen) unwiderruflich entfernen?');">
-                                            <input type="hidden" name="action" value="remove_shop">
-                                            <input type="hidden" name="shop" value="<?php echo htmlspecialchars($row['shop']); ?>">
-                                            <button type="submit" class="btn btn-sm btn-outline-danger">Entfernen</button>
-                                        </form>
+                                    <td class="text-end">
+                                        <div class="d-flex flex-column align-items-end gap-1">
+                                            <a href="connections.php?shop=<?php echo urlencode($row['shop']); ?>" class="btn btn-sm btn-outline-primary">Ansehen</a>
+                                            <form method="post" class="m-0" onsubmit="return confirm('Shop \'<?php echo htmlspecialchars(addslashes($row['shop'])); ?>\' und ALLE zugehörigen Connect-Daten (Connections, Webhooks, Lookup-Tabellen) unwiderruflich entfernen?');">
+                                                <input type="hidden" name="action" value="remove_shop">
+                                                <input type="hidden" name="shop" value="<?php echo htmlspecialchars($row['shop']); ?>">
+                                                <button type="submit" class="btn btn-sm btn-link text-danger py-0">Entfernen</button>
+                                            </form>
                                         </div>
                                     </td>
                                 </tr>
@@ -422,10 +457,26 @@ require dirname(__DIR__) . '/app/_header.php';
                         </tbody>
                     </table>
                 </div>
+                <script>
+                    (function () {
+                        var input = document.getElementById('shop-filter');
+                        var onlyProblems = document.getElementById('shop-problems-only');
+                        var rows = document.querySelectorAll('#shop-table tbody tr');
+                        function apply() {
+                            var needle = input.value.trim().toLowerCase();
+                            rows.forEach(function (row) {
+                                var matches = needle === '' || row.getAttribute('data-shop').indexOf(needle) !== -1;
+                                var problem = !onlyProblems.checked || row.getAttribute('data-problem') === '1';
+                                row.style.display = matches && problem ? '' : 'none';
+                            });
+                        }
+                        input.addEventListener('input', apply);
+                        onlyProblems.addEventListener('change', apply);
+                    })();
+                </script>
             <?php endif; ?>
         </div>
     </div>
-
     <div class="col-12">
         <div class="card">
             <div class="card-header">
