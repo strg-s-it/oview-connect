@@ -239,6 +239,51 @@ foreach ($pdo->query("SELECT c.id, c.shop, c.label, c.config, t.name AS type_nam
     $connectionsByShop[$connectionRow['shop']][] = $connectionRow;
 }
 
+// Verbindungsstatus (Heartbeat, Migration 0105): je Shop die Shopify-Connection und das Ziel-System.
+// Ohne die Migration bleibt die Spalte leer.
+$healthByShop = [];
+$healthAvailable = true;
+try {
+    foreach ($pdo->query(
+        "SELECT c.id, c.shop, c.label, c.health_status, c.health_checked_at, c.health_since, c.health_message, t.type_key, t.name AS type_name
+         FROM connect_connections c JOIN connect_connector_types t ON t.id = c.connector_type_id"
+    )->fetchAll() as $healthRow) {
+        $healthByShop[(string) $healthRow['shop']][] = $healthRow;
+    }
+} catch (\PDOException) {
+    $healthAvailable = false;
+}
+
+/**
+ * Eine Statuszeile (Badge + Hinweis) fuer eine Connection oder "–", wenn es keine gibt.
+ *
+ * @param array<string, mixed>|null $connection
+ */
+$healthBadge = static function (string $name, ?array $connection): string {
+    if ($connection === null) {
+        return '<div class="small text-secondary text-nowrap">' . htmlspecialchars($name) . ': –</div>';
+    }
+    $status = $connection['health_status'];
+    $since = $connection['health_since'] !== null ? (string) $connection['health_since'] : null;
+    if ($status === 'ok') {
+        $badge = '<span class="badge bg-green-lt">ok</span>';
+        $hint = $connection['health_checked_at'] !== null ? 'geprüft ' . date('H:i', (int) strtotime((string) $connection['health_checked_at'])) : '';
+        $title = '';
+    } elseif ($status === 'error') {
+        $badge = '<span class="badge bg-red-lt">Fehler</span>';
+        $hint = $since !== null ? 'seit ' . date('d.m. H:i', (int) strtotime($since)) : '';
+        $title = (string) ($connection['health_message'] ?? '');
+    } else {
+        $badge = '<span class="badge bg-secondary-lt">nicht geprüft</span>';
+        $hint = '';
+        $title = '';
+    }
+
+    return '<div class="small text-nowrap"' . ($title !== '' ? ' title="' . htmlspecialchars($title) . '"' : '') . '>'
+        . htmlspecialchars($name) . ': ' . $badge . ($hint !== '' ? ' <span class="text-secondary">' . htmlspecialchars($hint) . '</span>' : '') . '</div>'
+        . ($status === 'error' && $title !== '' ? '<div class="small text-danger" style="max-width:240px;white-space:normal">' . htmlspecialchars(mb_strimwidth($title, 0, 110, '…')) . '</div>' : '');
+};
+
 $pageTitle = 'Shops';
 $homeUrl = 'shops.php';
 $adminNavItems = require __DIR__ . '/_nav.php';
@@ -268,6 +313,7 @@ require dirname(__DIR__) . '/app/_header.php';
                                 <th>Connections</th>
                                 <th>Abo</th>
                                 <th>Zuständig</th>
+                                <th>Verbindung</th>
                                 <th>Ziel-System (Lagerbestand/Aufträge)</th>
                                 <th>Zuletzt gesehen</th>
                                 <th></th>
@@ -313,6 +359,27 @@ require dirname(__DIR__) . '/app/_header.php';
                                             <?php if ($row['live_changed_at'] !== null): ?>
                                                 <div class="text-secondary small mt-1">seit <?php echo htmlspecialchars((string) $row['live_changed_at']); ?></div>
                                             <?php endif; ?>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td>
+                                        <?php if (!$healthAvailable): ?>
+                                            <span class="badge bg-yellow-lt" title="php connect/bin/install.php ausführen">Migration 0105 fehlt</span>
+                                        <?php else: ?>
+                                            <?php
+                                            $shopConnections = $healthByShop[$row['shop']] ?? [];
+                                            $shopifyHealth = null;
+                                            $targetHealth = null;
+                                            foreach ($shopConnections as $healthConnection) {
+                                                if ($healthConnection['type_key'] === 'shopify' && $shopifyHealth === null) {
+                                                    $shopifyHealth = $healthConnection;
+                                                }
+                                                if ($row['target_connection_id'] !== null && (int) $row['target_connection_id'] === (int) $healthConnection['id']) {
+                                                    $targetHealth = $healthConnection;
+                                                }
+                                            }
+                                            echo $healthBadge('Shopify', $shopifyHealth);
+                                            echo $healthBadge($targetHealth !== null ? (string) $targetHealth['type_name'] : 'Ziel', $targetHealth);
+                                            ?>
                                         <?php endif; ?>
                                     </td>
                                     <td>

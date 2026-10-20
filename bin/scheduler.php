@@ -293,6 +293,18 @@ try {
     fwrite(STDERR, 'Preis-Aufgaben fehlgeschlagen: ' . $e->getMessage() . "\n");
 }
 
+// Verbindungsstatus (Connect\Sync\ConnectionHealth, Migration 0105): jede Connection alle 10 Minuten
+// leicht pruefen, Ergebnis in der Shopliste, Mail an den Admin bei anhaltendem Ausfall -- hoechstens 12 s
+// je Aufruf, genau ein Scheduler (GET_LOCK).
+try {
+    $healthResult = (new \Connect\Sync\ConnectionHealth($pdo, $factory, $config))->run(12);
+    if ($healthResult !== null) {
+        fwrite(STDOUT, 'Verbindungsstatus: ' . json_encode($healthResult) . "\n");
+    }
+} catch (\Throwable $e) {
+    fwrite(STDERR, 'Verbindungsstatus fehlgeschlagen: ' . $e->getMessage() . "\n");
+}
+
 // Neue Funktionswuensche als Wochen-Zusammenfassung an den Admin (Connect\Wishes\WishBoard,
 // Migration 0093): montags ab 7 Uhr, hoechstens eine Mail, genau ein Scheduler (GET_LOCK).
 try {

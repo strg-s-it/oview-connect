@@ -4,6 +4,14 @@
 
 # Connect — Handoff (Stand 2026-09-27)
 
+## Verbindungsstatus / Heartbeat (2026-10-20, nicht live getestet)
+
+`Connect\Sync\ConnectionHealth` (Migration `0105`, `connect_connections.health_*`): der Scheduler prüft jede Connection alle 10 Min.
+per `testConnection()` (je Aufruf max. 6 Connections / 12 s, `GET_LOCK`). Anzeige: Shopliste (`admin/shops.php`, Spalte "Verbindung":
+Shopify + Ziel-System, Fehlertext als Tooltip). Mail an den Admin ab dem 2. Fehlschlag in Folge, einmal je Ausfall, nur Shops mit
+`live_in_connect = 1`; Entwarnung bei Erholung. `connect_connections.status` bleibt unberührt (steuert den Umzug).
+
+
 ## Rückbuchung bei Kassenverkauf (2026-10-20, nicht live getestet)
 
 Ersatz für `cron_sync_stock_back.php` der alten Welt ("Zurück beim Verkauf"). Ohne ihn setzt der Lagerabgleich bei
