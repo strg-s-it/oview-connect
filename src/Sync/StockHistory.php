@@ -76,10 +76,11 @@ final class StockHistory
         $stmt = $this->pdo->prepare('SELECT direction, old_quantity, new_quantity, created_at FROM connect_stock_sync_log WHERE shop = :shop AND match_value = :m AND created_at >= :since ORDER BY created_at');
         $stmt->execute(['shop' => $shop, 'm' => $matchValue, 'since' => $since]);
         foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-            $toShopify = $row['direction'] === 'target_to_shopify';
+            $isSale = $row['direction'] === 'stock_back';
+            $toShopify = $isSale || $row['direction'] === 'target_to_shopify';
             $events[] = [
                 'at' => (string) $row['created_at'], 'kind' => 'sync',
-                'title' => $toShopify ? 'Abgleich: Bestand in Shopify gesetzt' : 'Abgleich: Bestand im Kassensystem angepasst',
+                'title' => $isSale ? 'Kassenverkauf: Bestand in Shopify nachgetragen' : ($toShopify ? 'Abgleich: Bestand in Shopify gesetzt' : 'Abgleich: Bestand im Kassensystem angepasst'),
                 'text' => ($row['old_quantity'] !== null ? $row['old_quantity'] . ' → ' : 'auf ') . $row['new_quantity'],
                 'quantity' => (int) $row['new_quantity'],
             ];

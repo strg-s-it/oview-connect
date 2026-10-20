@@ -91,6 +91,7 @@ $stockTargetName = htmlspecialchars((string) (($shopSettings['target_type_name']
 $directionLabel = [
     'shopify_to_target' => 'Shopify &rarr; ' . $stockTargetName,
     'target_to_shopify' => $stockTargetName . ' &rarr; Shopify',
+    'stock_back' => 'Kassenverkauf &rarr; Shopify',
 ];
 
 $pageTitle = 'Lagerbestände' . ($isAdmin ? ' — ' . $shop : '');

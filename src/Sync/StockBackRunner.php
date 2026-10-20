@@ -333,7 +333,7 @@ final class StockBackRunner
                     $adjustments[] = [
                         'match_value' => $matchValue,
                         'label' => $label !== null && $label !== '' ? (string) $label : $itemName,
-                        'direction' => 'target_to_shopify',
+                        'direction' => 'stock_back',
                         'old_quantity' => $oldQuantity,
                         'new_quantity' => $newQuantity,
                     ];

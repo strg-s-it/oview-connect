@@ -57,6 +57,7 @@ $shops = $pdo->query('SELECT shop FROM connect_shops ORDER BY shop')->fetchAll(P
 $directionLabel = [
     'shopify_to_target' => 'Shopify &rarr; Zielsystem',
     'target_to_shopify' => 'Zielsystem &rarr; Shopify',
+    'stock_back' => 'Kassenverkauf &rarr; Shopify',
 ];
 
 $pageTitle = 'Lagerbestandsänderungen';
