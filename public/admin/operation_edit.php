@@ -161,6 +161,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'test_
                 throw new \Connect\Sync\TestDone();
             }
 
+            // Einzelabruf (read_one): eine ID eingeben, genau diesen Datensatz lesen (nur lesend)
+            if ($operation['operation_type'] === 'read_one') {
+                $testId = trim((string) ($_POST['test_id'] ?? ''));
+                if ($testId === '') {
+                    throw new \RuntimeException('Bitte die ID des Datensatzes eintragen.');
+                }
+                $row = $connector->readOne((string) $operation['object_key'], ['id' => $testId]);
+                $testOutput = $row === null
+                    ? 'Datensatz nicht gefunden.'
+                    : "Erfolgreich, Datensatz " . $testId . ":
+" . json_encode($row, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+                $flashMessage = $row === null ? 'Datensatz nicht gefunden.' : 'Test erfolgreich.';
+                $flashType = $row === null ? 'warning' : 'success';
+                throw new \Connect\Sync\TestDone();
+            }
+
             $count = 0;
             $sample = [];
             // Shopify-Produkt: Metafield-Plaetze der Shop-Felder muessen mitgeschickt werden (Migration 0074)
@@ -299,7 +315,7 @@ require dirname(__DIR__) . '/app/_header.php';
         </div>
     <?php endif; ?>
 
-    <?php if ($operation['operation_type'] === 'read_list' || $operation['operation_type'] === 'read_list_supplement'): ?>
+    <?php if ($operation['operation_type'] === 'read_list' || $operation['operation_type'] === 'read_list_supplement' || $operation['operation_type'] === 'read_one'): ?>
         <div class="col-12">
             <div class="card">
                 <div class="card-header">
@@ -318,8 +334,13 @@ require dirname(__DIR__) . '/app/_header.php';
                                     <?php endforeach; ?>
                                 </select>
                             </div>
+                            <?php if ($operation['operation_type'] === 'read_one'): ?>
+                                <div class="col-auto">
+                                    <input type="text" name="test_id" class="form-control font-monospace" placeholder="ID des Datensatzes" required>
+                                </div>
+                            <?php endif; ?>
                             <div class="col-auto">
-                                <button type="submit" class="btn btn-outline-primary">Live testen (max. 3 Datensätze)</button>
+                                <button type="submit" class="btn btn-outline-primary"><?php echo $operation['operation_type'] === 'read_one' ? 'Live testen (ein Datensatz)' : 'Live testen (max. 3 Datensätze)'; ?></button>
                             </div>
                         </form>
                     <?php endif; ?>
