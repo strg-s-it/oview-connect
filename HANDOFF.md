@@ -4,6 +4,31 @@
 
 # Connect — Handoff (Stand 2026-09-27)
 
+## Rückbuchung bei Kassenverkauf (2026-10-20, nicht live getestet)
+
+Ersatz für `cron_sync_stock_back.php` der alten Welt ("Zurück beim Verkauf"). Ohne ihn setzt der Lagerabgleich bei
+Richtung "Shopify führt" einen Kassenverkauf wieder zurück (Kasse 10 → 9, Shopify bleibt 10, nächster Abgleich: Kasse 10).
+
+- `src/Sync/StockBackRunner.php` (`mapping_kind='stock_back'`, alle 5 Min., nur `live_in_connect = 1`): neue Kassenrechnungen
+  per Liste, je Rechnung atomarer Claim in `connect_stock_back_log` (Migration `0104`), Positionen per Detail,
+  je Artikel Kassenbestand live lesen → Shopify-Variante über den Vergleichswert → Bestand setzen (`changeFromQuantity`).
+  Optional (`stock_back_dummy_order`): Bestellung in Shopify per `orderCreate` (Notiz `POS helloCash #Nr`, ohne `financialStatus`,
+  damit `orders/paid` keine Rechnung auslöst), Idempotenz zusätzlich live gegen Shopify (Notiz der letzten 2 Stunden).
+- Übersprungen werden Rechnungen, die Connect selbst für Shopify-Bestellungen angelegt hat (Text "Shopify #" oder
+  Rechnungsnummer als Erfolg im Aktivitätsprotokoll).
+- Umzug: `ShopMigrator` übernimmt `back_enabled`/`dummy_order` (nur bei Richtung Shopify → Kasse), setzt `stock_back_since` = jetzt
+  und legt die Aktivierung an. Die Richtung Kasse → Shopify des alten Jobs ist weiterhin NICHT gebaut (Sperre bleibt).
+- **Connector Builder (helloCash v2), einmalig von Hand:** Object `invoice_read` ("Rechnung (lesen)"), Kennung `id`.
+  Felder: `id`, `invoice_number`, `type`, `status`, `note`, `created_at` (alle Pfad = Schlüssel) und wiederholende Gruppe
+  `items` mit Kindern `article_id`, `quantity`, `name`. Operationen:
+  - `read_list`: `GET invoices?from={{from}}&status={{status}}&limit=250&offset={{offset}}`, Datensätze unter `data`
+    (Pagination `data` ↔ `pagination` wird erkannt).
+  - `read_one`: `GET invoices/{{id}}`, Datensatz unter `data`.
+  Artikel-Object braucht `read_one` (Einzelabruf mit Bestand, ist bei helloCash schon so).
+- Offen: Dummy-Bestellung nutzt `orderCreate(order: OrderCreateOrderInput!)` mit `fulfillment`/`customer.toUpsert` –
+  Eingabefelder nicht gegen die Live-API geprüft. Erste Testrechnung beobachten (Aktivitätsprotokoll, Operation `create_pos_order`).
+
+
 ## ⚠️ Sofort beim Weiterarbeiten prüfen
 
 **Laufender Umbau (ab 2026-10-01): Rechnungen/Belege über die Oberfläche statt im Code.** Plan: `C:\Users\AndreasSinnhuber\.claude\plans\sequential-wishing-scott.md` (Phasen 1–8). Kurz: `OrderPreparer` bereitet die Shopify-Bestellung systemneutral auf → internes Object "Bestellung (aufbereitet)" → Mapping-Vorlage per Maske → generische `DocumentPipeline`; Eigenheiten des Zielsystems im "Belegprofil" am Ziel-Object.

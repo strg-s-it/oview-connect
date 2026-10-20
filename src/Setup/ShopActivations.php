@@ -67,6 +67,49 @@ final class ShopActivations
         \Connect\Billing\Plans::applyIntervals($this->pdo, $shop);
     }
 
+    /** Rueckbuchung bei Kassenverkauf: oft genug, damit der Lagerabgleich einen Verkauf nicht vorher ueberschreibt. */
+    public const STOCK_BACK_MINUTES = 5;
+
+    /**
+     * Aktivierung "Rueckbuchung bei Kassenverkauf" (Connect\Sync\StockBackRunner, Migration 0104).
+     * source_* nur fuer die Anzeige (NOT NULL), der Runner liest alles aus connect_shops.
+     */
+    public function syncStockBackMapping(string $shop, bool $enabled): void
+    {
+        $existing = $this->pdo->prepare("SELECT id FROM connect_sync_mappings WHERE shop = :shop AND mapping_kind = 'stock_back'");
+        $existing->execute(['shop' => $shop]);
+        $mappingId = $existing->fetchColumn();
+
+        if ($mappingId !== false) {
+            $this->pdo->prepare('UPDATE connect_sync_mappings SET enabled = :enabled, updated_at = CURRENT_TIMESTAMP WHERE id = :id')
+                ->execute(['enabled' => $enabled ? 1 : 0, 'id' => $mappingId]);
+
+            return;
+        }
+        if (!$enabled) {
+            return;
+        }
+
+        $shopify = $this->shopifyConnection($shop);
+        $productObjectId = $this->pdo->query(
+            "SELECT o.id FROM connect_objects o JOIN connect_connector_types t ON t.id = o.connector_type_id
+             WHERE t.type_key = 'shopify' AND o.object_key = 'product' LIMIT 1"
+        )->fetchColumn();
+
+        if ($shopify !== null && $productObjectId !== false) {
+            $this->pdo->prepare(
+                "INSERT INTO connect_sync_mappings
+                    (shop, name, source_connection_id, source_object_id, mapping_kind, trigger_type, schedule_interval_minutes, enabled, managed_by)
+                 VALUES (:shop, 'Kassenverkäufe zurückbuchen', :source_connection_id, :source_object_id, 'stock_back', 'schedule', :minutes, 1, 'system')"
+            )->execute([
+                'shop' => $shop,
+                'source_connection_id' => (int) $shopify['id'],
+                'source_object_id' => (int) $productObjectId,
+                'minutes' => self::STOCK_BACK_MINUTES,
+            ]);
+        }
+    }
+
     /**
      * Aktivierung "Rechnungserstellung" (Webhook orders/paid). target_connection_id muss
      * gesetzt sein, sonst greift webhooks/order_paid.php sie nicht auf. Neue Aktivierungen

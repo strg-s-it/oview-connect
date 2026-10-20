@@ -19,7 +19,7 @@ use PDO;
 final class JobScheduler
 {
     /** Schreibende Arten -- muessen zum Umstellen passen (SyncRunner, live_in_connect) */
-    public const WRITING_KINDS = ['stock_sync', 'product_visibility', 'auto_import_products', 'invoice'];
+    public const WRITING_KINDS = ['stock_sync', 'stock_back', 'product_visibility', 'auto_import_products', 'invoice'];
 
     /**
      * Lese-/Daten-Jobs (fuellen den Zwischenspeicher, schreiben nichts) jetzt einplanen.

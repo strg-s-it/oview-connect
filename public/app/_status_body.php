@@ -112,6 +112,7 @@ $schedule = $scheduleStmt->fetchAll();
 $scheduleLabel = static function (array $m): string {
     return match ((string) $m['mapping_kind']) {
         'stock_sync' => 'Lagerbestand abgleichen',
+        'stock_back' => 'Kassenverkäufe in Shopify zurückbuchen',
         'invoice' => 'Rechnung bei bezahlter Bestellung',
         'auto_import_products' => 'Neue Produkte automatisch übernehmen',
         'product_visibility' => 'Ausverkaufte Produkte ausblenden',

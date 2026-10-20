@@ -79,6 +79,8 @@ final class FlowInspector
                     $flows[] = $this->documentFlow($mapping, true);
                 } elseif ($kind === 'stock_sync') {
                     $flows[] = $this->stockFlow($mapping);
+                } elseif ($kind === 'stock_back') {
+                    continue; // eigener Hintergrund-Job (Kassenverkaeufe zurueckbuchen), kein Datenfluss zum Anzeigen
                 } elseif ($kind === 'product_visibility') {
                     $flows[] = $this->visibilityFlow($mapping);
                 } elseif ($kind === 'auto_import_products') {

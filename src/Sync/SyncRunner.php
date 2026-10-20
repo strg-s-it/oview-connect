@@ -94,7 +94,7 @@ final class SyncRunner
             // Reine Lese-Jobs (Zwischenspeicher fuellen) laufen weiter, damit beim
             // Umschalten schon alle Daten da sind.
             $kind = (string) ($mapping['mapping_kind'] ?? 'default');
-            $writes = in_array($kind, ['stock_sync', 'auto_import_products', 'invoice', 'product_visibility'], true) || $mapping['target_connection_id'] !== null;
+            $writes = in_array($kind, ['stock_sync', 'stock_back', 'auto_import_products', 'invoice', 'product_visibility'], true) || $mapping['target_connection_id'] !== null;
             if ($writes && !$this->shopIsLive((string) $mapping['shop'])) {
                 $this->log("Übersprungen: Shop \"{$mapping['shop']}\" läuft noch in der alten Welt (live_in_connect = 0) -- schreibende Jobs erst nach dem Umschalten.");
                 $this->finishRun($runId, 'success', 0, 0, 0, null);
@@ -130,6 +130,25 @@ final class SyncRunner
                 // (running|success|partial|error) -- ein uebersprungener Zyklus
                 // (z.B. noch keine Daten auf beiden Seiten) ist kein Fehler,
                 // deshalb als success gezaehlt, der Skip-Grund steht im Log.
+                $status = $result['status'] === 'skipped' ? 'success' : $result['status'];
+                $this->finishRun($runId, $status, $result['matched'], $result['written'], $result['failed'], $status === 'error' ? $result['message'] : null);
+
+                return;
+            }
+
+            // mapping_kind='stock_back' (Migration 0104): Kassenverkaeufe in Shopify zurueckbuchen
+            // (und optional Dummy-Bestellung), siehe StockBackRunner.
+            if ($kind === 'stock_back') {
+                $this->log("Rückbuchung bei Kassenverkauf gestartet für Shop \"{$mapping['shop']}\" (Job " . ($jobId ?? '–') . ')');
+
+                $result = (new StockBackRunner($this->pdo, $this->connectorFactory))->runForShop((string) $mapping['shop'], $runId);
+                $duration = round(microtime(true) - $startedAt, 1);
+                $this->log("Fertig in {$duration}s ({$result['status']}): {$result['message']}");
+
+                if (count($result['adjustments']) > 0) {
+                    $this->logStockAdjustments((string) $mapping['shop'], $runId, $result['adjustments']);
+                }
+
                 $status = $result['status'] === 'skipped' ? 'success' : $result['status'];
                 $this->finishRun($runId, $status, $result['matched'], $result['written'], $result['failed'], $status === 'error' ? $result['message'] : null);
 

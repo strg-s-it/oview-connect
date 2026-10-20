@@ -196,9 +196,15 @@ final class ShopMigrator
             $rows[] = ['area' => 'Rechnung', 'label' => 'Rechnung ohne Kunde erlauben', 'legacy' => 'an', 'connect' => 'immer erlaubt', 'status' => self::STATUS_SAME, 'note' => 'Connect legt die Rechnung ohne Kunden-ID an, wenn keiner zugeordnet werden kann.'];
         }
         if (($legacy['stock']['back_enabled'] ?? 'inaktiv') === 'aktiv') {
-            $rows[] = ['area' => 'Lagerbestand', 'label' => 'Rückbuchung (Dummy-Bestellung in Shopify)', 'legacy' => 'an', 'connect' => '–', 'status' => self::STATUS_UNSUPPORTED, 'note' => 'cron_sync_stock_back ist in Connect noch nicht gebaut – dieser Shop kann noch nicht umziehen.'];
+            if (!self::legacyBackApplies($legacy['stock'])) {
+                // Andere Richtung (Kasse -> Shopify): der alte Job bucht dort Shopify-Bestellungen im Kassensystem ab
+                $rows[] = ['area' => 'Lagerbestand', 'label' => 'Rückbuchung (Richtung Kasse → Shopify)', 'legacy' => 'an', 'connect' => '–', 'status' => self::STATUS_UNSUPPORTED, 'note' => 'Dieser Teil von cron_sync_stock_back (Shopify-Bestellung → Kassenbestand) ist in Connect nicht gebaut – dieser Shop kann noch nicht umziehen.'];
+            } elseif (!$this->hasColumn('stock_back_enabled')) {
+                $rows[] = ['area' => 'Lagerbestand', 'label' => 'Rückbuchung bei Kassenverkauf', 'legacy' => 'an', 'connect' => '–', 'status' => self::STATUS_MANUAL, 'note' => 'Braucht Migration 0104 (php connect/bin/install.php), danach wird der Wert übernommen.'];
+            } elseif (!$this->invoiceReadObjectExists()) {
+                $rows[] = ['area' => 'Lagerbestand', 'label' => 'Kassenrechnungen lesen (Connector Builder)', 'legacy' => 'nötig', 'connect' => 'fehlt', 'status' => self::STATUS_MANUAL, 'note' => 'Im Connector Builder (helloCash) das Object „' . \Connect\Sync\StockBackRunner::INVOICE_OBJECT . '“ mit read_list und read_one für GET /invoices anlegen – sonst pausiert die Rückbuchung (siehe HANDOFF.md).'];
+            }
         }
-
         return $rows;
     }
 
@@ -351,6 +357,10 @@ final class ShopMigrator
                 $notes[] = 'Lagerbestand-Abgleich angelegt.';
             }
         }
+        if ((int) ($shopRow['stock_back_enabled'] ?? 0) === 1) {
+            (new \Connect\Setup\ShopActivations($this->pdo, $this->crypto, $this->config))->syncStockBackMapping($shop, true);
+            $notes[] = 'Rückbuchung bei Kassenverkauf aktiviert (ab jetzt, alle ' . \Connect\Setup\ShopActivations::STOCK_BACK_MINUTES . ' Minuten).';
+        }
 
         // 4. Abo: bleibt bei Shopify bestehen (dieselbe App). Jetzt abfragen, damit Connect den
         // Plan kennt -- setzt das Lagerabgleich-Intervall (z.B. 30 Min. bei "+") und verhindert,
@@ -429,6 +439,17 @@ final class ShopMigrator
             $values['stock_sync_enabled'] = ($stock['enabled'] ?? '') === 'aktiv' ? 1 : 0;
             $values['stock_sync_direction'] = ($stock['direction'] ?? '') === 'shopify->helloCash' ? 'shopify_to_target' : 'target_to_shopify';
             $values['stock_primary_location_id'] = $this->mapLocation($shop, (string) ($stock['primary_location'] ?? ''));
+
+            // Rueckbuchung bei Kassenverkauf (Migration 0104): nur bei Richtung Shopify -> Kasse, dort ersetzt
+            // sie den alten Job. Startzeitpunkt = jetzt, damit alte Rechnungen nicht nachtraeglich laufen.
+            if ($this->hasColumn('stock_back_enabled') && self::legacyBackApplies($stock)) {
+                $values['stock_back_enabled'] = 1;
+                $values['stock_back_dummy_order'] = ($stock['dummy_order'] ?? '') === 'aktiv' ? 1 : 0;
+                // nur beim ersten Uebernehmen setzen -- ein erneutes Uebernehmen darf den Start nicht nach hinten schieben
+                if (($this->connectShop($shop)['stock_back_since'] ?? null) === null) {
+                    $values['stock_back_since'] = date('Y-m-d H:i:s');
+                }
+            }
         }
 
         return $values;
@@ -469,6 +490,8 @@ final class ShopMigrator
             'stock_sync_enabled' => ['Lagerbestand', 'Automatischer Abgleich', $onOff],
             'stock_sync_direction' => ['Lagerbestand', 'Richtung', $direction],
             'stock_primary_location_id' => ['Lagerbestand', 'Primärer Standort', $text],
+            'stock_back_enabled' => ['Lagerbestand', 'Rückbuchung bei Kassenverkauf', $onOff],
+            'stock_back_dummy_order' => ['Lagerbestand', 'Dummy-Bestellung in Shopify', $onOff],
         ];
     }
 
@@ -591,6 +614,23 @@ final class ShopMigrator
     }
 
     /** Spalte in connect_shops vorhanden? (neuere Migrationen, z.B. 0079 notify_email) */
+    /** Gilt der Rueckbuchungs-Job der alten Welt fuer diesen Shop (Richtung Shopify -> Kasse)? */
+    private static function legacyBackApplies(array $stock): bool
+    {
+        return strtolower((string) ($stock['direction'] ?? '')) === 'shopify->hellocash';
+    }
+
+    /** Gibt es im Connector Builder das Object zum Lesen der Kassenrechnungen? */
+    private function invoiceReadObjectExists(): bool
+    {
+        $stmt = $this->pdo->prepare(
+            "SELECT 1 FROM connect_objects o JOIN connect_connector_types t ON t.id = o.connector_type_id
+             WHERE o.object_key = :key AND t.type_key <> 'shopify' LIMIT 1"
+        );
+        $stmt->execute(['key' => \Connect\Sync\StockBackRunner::INVOICE_OBJECT]);
+
+        return $stmt->fetchColumn() !== false;
+    }
     private function hasColumn(string $column): bool
     {
         if (!preg_match('/^[a-z_]+$/', $column)) {

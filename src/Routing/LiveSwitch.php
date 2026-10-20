@@ -150,7 +150,7 @@ final class LiveSwitch
         $mappings = $this->pdo->prepare(
             "SELECT id FROM connect_sync_mappings
              WHERE shop = :shop AND enabled = 1 AND schedule_interval_minutes IS NOT NULL
-               AND (mapping_kind IN ('stock_sync', 'product_visibility', 'auto_import_products') OR target_connection_id IS NOT NULL)"
+               AND (mapping_kind IN ('stock_sync', 'stock_back', 'product_visibility', 'auto_import_products') OR target_connection_id IS NOT NULL)"
         );
         $mappings->execute(['shop' => $shop]);
 
