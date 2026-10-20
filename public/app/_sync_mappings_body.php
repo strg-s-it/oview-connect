@@ -382,6 +382,28 @@ if ($attachmentsAllowed && $_SERVER['REQUEST_METHOD'] === 'POST' && in_array($_P
     }
 }
 
+// -----------------------------------------------------------------------
+// POST: Rueckbuchung bei Kassenverkauf (Migration 0104) -- ADMIN: Rueckbuchung UND Dummy-Bestellung
+// (legt echte Bestellungen im Shop an, deshalb nur hier). Haendler schalten nur die Rueckbuchung
+// selbst (save_stock_settings unten). Siehe Connect\Setup\StockBackSettings / StockBackRunner.
+// -----------------------------------------------------------------------
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_stock_back_settings') {
+    if (!$isAdmin) {
+        $flashMessage = 'Die Dummy-Bestellung kann nur im Admin-Bereich geändert werden.';
+        $flashType = 'danger';
+    } else {
+        $backResult = \Connect\Setup\StockBackSettings::save(
+            $pdo,
+            $app,
+            $shop,
+            isset($_POST['stock_back_enabled']),
+            isset($_POST['stock_back_dummy_order'])
+        );
+        $flashMessage = $backResult['message'];
+        $flashType = $backResult['ok'] ? 'success' : 'danger';
+    }
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_stock_settings') {
     $direction = (string) ($_POST['stock_sync_direction'] ?? '');
     $primaryLocationId = trim((string) ($_POST['stock_primary_location_id'] ?? ''));
@@ -422,8 +444,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_
         } catch (\PDOException) {
         }
 
-        $flashMessage = 'Lagerbestand-Einstellungen gespeichert.';
-        $flashType = 'success';
+        // Rueckbuchung bei Kassenverkauf (Migration 0104): nur wenn das Formular den Schalter enthielt. Wechselt die
+        // Richtung auf "Kassensystem fuehrt", wird sie ausgeschaltet. Die Dummy-Bestellung bleibt unveraendert (Admin).
+        $backNote = '';
+        $backFailed = false;
+        $backState = \Connect\Setup\StockBackSettings::state($pdo, $shop);
+        if ($backState !== null) {
+            $backWanted = isset($_POST['stock_back_present']) ? isset($_POST['stock_back_enabled']) : $backState['enabled'];
+            if ($direction !== 'shopify_to_target') {
+                $backNote = $backState['enabled'] ? ' Die Rückbuchung bei Kassenverkauf wurde ausgeschaltet (gilt nur, wenn der Bestand in Shopify geführt wird).' : '';
+                $backWanted = false;
+            }
+            if ($backWanted !== $backState['enabled']) {
+                $backResult = \Connect\Setup\StockBackSettings::save($pdo, $app, $shop, $backWanted, null);
+                $backNote = $backNote !== '' ? $backNote : ' ' . $backResult['message'];
+                $backFailed = !$backResult['ok'];
+            }
+        }
+
+        $flashMessage = 'Lagerbestand-Einstellungen gespeichert.' . $backNote;
+        $flashType = $backFailed ? 'warning' : 'success';
     }
 }
 
@@ -1329,6 +1369,53 @@ require __DIR__ . '/_header.php';
             </div>
         </div>
 
+        <?php $stockBack = \Connect\Setup\StockBackSettings::state($pdo, $shop); ?>
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">Rückbuchung bei Kassenverkauf (Admin)</h3>
+                </div>
+                <div class="card-body">
+                    <?php if ($stockBack === null): ?>
+                        <div class="alert alert-warning mb-0">Migration 0104 ist noch nicht eingespielt.</div>
+                    <?php else: ?>
+                        <p class="text-secondary">
+                            Neue Kassenverkäufe werden in Shopify nachgetragen (Bestand der verkauften Artikel), damit der
+                            Lagerabgleich sie nicht überschreibt. Nur bei „Shopify führt“, nur wenn der Shop in Connect live ist,
+                            Lauf alle <?php echo (int) \Connect\Setup\ShopActivations::STOCK_BACK_MINUTES; ?> Minuten.
+                            Die <strong>Dummy-Bestellung</strong> legt zusätzlich je Kassenrechnung eine Bestellung in Shopify an
+                            (Notiz „POS helloCash #Nr“) – echte Bestellungen im Shop des Händlers, deshalb nur hier schaltbar.
+                        </p>
+                        <?php if (!$stockBack['available']): ?>
+                            <div class="alert alert-warning">Im Connector Builder fehlt das Object „<?php echo htmlspecialchars(\Connect\Sync\StockBackRunner::INVOICE_OBJECT); ?>“ für diese Software (read_list + read_one für GET /invoices) – die Rückbuchung lässt sich erst danach einschalten.</div>
+                        <?php elseif ($stockBack['direction'] !== 'shopify_to_target'): ?>
+                            <div class="alert alert-info">Richtung ist „Kassensystem führt“ – die Rückbuchung gilt nur bei „Shopify führt“.</div>
+                        <?php endif; ?>
+                        <form method="post" class="row g-2">
+                            <input type="hidden" name="action" value="save_stock_back_settings">
+                            <div class="col-12">
+                                <label class="form-check">
+                                    <input type="checkbox" name="stock_back_enabled" class="form-check-input" <?php echo $stockBack['enabled'] ? 'checked' : ''; ?>>
+                                    <span class="form-check-label">Kassenverkäufe in Shopify zurückbuchen</span>
+                                </label>
+                                <?php if ($stockBack['enabled'] && $stockBack['since'] !== null): ?>
+                                    <small class="text-secondary d-block">Verarbeitet werden Kassenrechnungen ab <?php echo htmlspecialchars($stockBack['since']); ?>.</small>
+                                <?php endif; ?>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-check">
+                                    <input type="checkbox" name="stock_back_dummy_order" class="form-check-input" <?php echo $stockBack['dummy'] ? 'checked' : ''; ?>>
+                                    <span class="form-check-label">Zusätzlich Dummy-Bestellung in Shopify anlegen</span>
+                                </label>
+                            </div>
+                            <div class="col-12 mt-2">
+                                <button type="submit" class="btn btn-primary">Speichern</button>
+                            </div>
+                        </form>
+                    <?php endif; ?>
+                </div>
+            </div>
+        </div>
         <div class="col-12">
             <div class="card">
                 <div class="card-header">
@@ -1599,6 +1686,17 @@ require __DIR__ . '/_header.php';
                                 </div>
                                 <small class="text-secondary">So viele Stück hältst du online zurück, damit nichts doppelt verkauft wird. Beispiel: 5 im Lager, Reserve 1 → online sind 4 kaufbar. 0 = keine Reserve. Gilt nur, wenn du den Bestand in <?php echo htmlspecialchars($targetName); ?> pflegst.</small>
                             </div>
+                            <?php $stockBackMerchant = \Connect\Setup\StockBackSettings::state($pdo, $shop); ?>
+                            <?php if ($stockBackMerchant !== null && ($stockBackMerchant['available'] || $stockBackMerchant['enabled'])): ?>
+                                <div class="col-12">
+                                    <input type="hidden" name="stock_back_present" value="1">
+                                    <label class="form-check">
+                                        <input type="checkbox" name="stock_back_enabled" class="form-check-input" <?php echo $stockBackMerchant['enabled'] ? 'checked' : ''; ?>>
+                                        <span class="form-check-label">Verkäufe an der Kasse in Shopify zurückbuchen</span>
+                                    </label>
+                                    <small class="text-secondary d-block">Nur wenn du den Bestand in Shopify pflegst: verkaufst du etwas an der Kasse, trägt oView den neuen Kassenbestand in Shopify nach. Sonst würde der nächste Abgleich den Verkauf wieder überschreiben. Gilt für Verkäufe ab dem Einschalten.</small>
+                                </div>
+                            <?php endif; ?>
                             <div class="col-12">
                                 <label class="form-check">
                                     <input type="checkbox" name="stock_sync_enabled" class="form-check-input" <?php echo ((int) $shopSettings['stock_sync_enabled']) === 1 ? 'checked' : ''; ?>>

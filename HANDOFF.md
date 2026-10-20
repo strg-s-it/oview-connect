@@ -18,6 +18,9 @@ Richtung "Shopify führt" einen Kassenverkauf wieder zurück (Kasse 10 → 9, Sh
   Rechnungsnummer als Erfolg im Aktivitätsprotokoll).
 - Umzug: `ShopMigrator` übernimmt `back_enabled`/`dummy_order` (nur bei Richtung Shopify → Kasse), setzt `stock_back_since` = jetzt
   und legt die Aktivierung an. Die Richtung Kasse → Shopify des alten Jobs ist weiterhin NICHT gebaut (Sperre bleibt).
+- Schalter: `Connect\Setup\StockBackSettings`. Admin (Jobs-Seite des Shops, Karte "Rückbuchung bei Kassenverkauf"): Rückbuchung +
+  Dummy-Bestellung. Händler (Einstellungen → Lagerbestand): nur die Rückbuchung. Einschalten setzt `stock_back_since` = jetzt und legt die
+  Aktivierung an. Nur bei Richtung "Shopify führt" und wenn das Object `invoice_read` existiert.
 - **Connector Builder (helloCash v2), einmalig von Hand:** Object `invoice_read` ("Rechnung (lesen)"), Kennung `id`.
   Felder: `id`, `invoice_number`, `type`, `status`, `note`, `created_at` (alle Pfad = Schlüssel) und wiederholende Gruppe
   `items` mit Kindern `article_id`, `quantity`, `name`. Operationen:
