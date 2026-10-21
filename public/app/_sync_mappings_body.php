@@ -653,6 +653,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'refre
     $flashMessage = 'Einstellung für Rechnungen/Aufträge gespeichert.';
     $flashType = 'success';
 
+    // Gewaehlte Zahlungsart im Kassensystem bei Bedarf gleich anlegen (Connect\Sync\PaymentMethodEnsurer)
+    if ($invoiceEnabled === 1 && $suppressAndAdjustStock === 0) {
+        $ensured = (new \Connect\Sync\PaymentMethodEnsurer($pdo, $buildFactory()))->ensureForShop($shop);
+        if ($ensured['status'] === 'created') {
+            $flashMessage .= ' ' . $ensured['message'];
+        } elseif ($ensured['status'] === 'failed') {
+            $flashMessage .= ' (Achtung: ' . $ensured['message'] . ')';
+            $flashType = 'danger';
+        }
+    }
+
     // Aktivierung (mapping_kind='invoice', mit target_connection_id -- sonst greift
     // webhooks/order_paid.php sie nicht auf) und Shopify-Abo "Bestellung bezahlt",
     // gemeinsam mit der Einrichtung (Connect\Setup\ShopActivations)
@@ -1966,7 +1977,11 @@ require __DIR__ . '/_header.php';
                                     <?php endforeach; ?>
                                 </select>
                                 <?php if ($currentPaymentMethod !== '' && !isset($helloCashPaymentMethods[$currentPaymentMethod])): ?>
-                                    <small class="text-danger">Diese Zahlungsart gibt es in <?php echo htmlspecialchars($targetName); ?> nicht (oder sie ist deaktiviert) – Rechnungen schlagen fehl. Bitte eine andere wählen.</small>
+                                    <?php if (\Connect\Sync\PaymentMethodEnsurer::canCreate($pdo, (int) $shopSettings['target_connection_id'])): ?>
+                                        <small class="text-secondary">Diese Zahlungsart gibt es in <?php echo htmlspecialchars($targetName); ?> noch nicht – oView legt sie beim Speichern bzw. mit der nächsten Rechnung automatisch an.</small>
+                                    <?php else: ?>
+                                        <small class="text-danger">Diese Zahlungsart gibt es in <?php echo htmlspecialchars($targetName); ?> nicht (oder sie ist deaktiviert) – Rechnungen schlagen fehl. Bitte eine andere wählen.</small>
+                                    <?php endif; ?>
                                 <?php endif; ?>
                             <?php else: ?>
                                 <input type="text" name="invoice_payment_method" class="form-control" value="<?php echo htmlspecialchars($currentPaymentMethod); ?>" placeholder="z. B. Webshop">

@@ -464,6 +464,16 @@ final class SyncRunner
         }
 
         try {
+            // Zahlungsart des Shops im Kassensystem sicherstellen (legt sie bei Bedarf an), bevor
+            // die Rechnung rausgeht -- helloCash lehnt unbekannte Zahlungsarten ab. Ein Fehler
+            // hier bricht nichts ab; dann scheitert die Rechnung wie bisher mit klarer Meldung.
+            if (($mapping['mapping_kind'] ?? 'default') === 'invoice' && !$this->invoiceSuppressedForShop($mapping)) {
+                $ensured = (new PaymentMethodEnsurer($this->pdo, $this->connectorFactory))->ensureForShop((string) $mapping['shop']);
+                if ($ensured['message'] !== '' && $ensured['status'] !== 'unavailable') {
+                    $this->log($ensured['message']);
+                }
+            }
+
             // Belegerstellung ueber die Oberflaeche (Migration 0067): Vorlage mit
             // Quelle "Bestellung (aufbereitet)" -> Connect\Sync\Document\DocumentPipeline
             // (Aufbereitung, Kunden-Vorschritt, Kontrollen, Belegprofil). Gilt fuer
