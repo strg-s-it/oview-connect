@@ -150,7 +150,7 @@ $plan = [];
 $legacyFound = false;
 try {
     $legacyFound = $migrator->loadLegacy($shop) !== null;
-    $plan = $legacyFound ? $migrator->plan($shop) : [];
+    $plan = $legacyFound ? $migrator->plan($shop, $factory) : [];
 } catch (\Throwable $e) {
     $legacyError = $e->getMessage();
 }

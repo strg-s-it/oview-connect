@@ -105,9 +105,11 @@ final class ShopMigrator
     /**
      * Gegenueberstellung alte Welt / Connect.
      *
+     * Mit $factory wird zusaetzlich live geprueft, ob die Zahlungsart im helloCash-Konto existiert.
+     *
      * @return list<array{area: string, label: string, legacy: string, connect: string, status: string, note: ?string}>
      */
-    public function plan(string $shop): array
+    public function plan(string $shop, ?ConnectorFactory $factory = null): array
     {
         $legacy = $this->loadLegacy($shop);
         if ($legacy === null) {
@@ -145,6 +147,12 @@ final class ShopMigrator
             'status' => $hcConnection !== null ? self::STATUS_SAME : ($token !== '' ? self::STATUS_CHANGE : self::STATUS_MANUAL),
             'note' => $hcConnection !== null ? 'Bestehende Connection bleibt, der Token wird nicht überschrieben.' : ($token !== '' ? 'Wird mit dem Token der alten Welt angelegt und getestet.' : 'Ohne Token muss die Connection von Hand angelegt werden.'),
         ];
+
+        // Zahlungsart im helloCash-Konto: API v1 nahm einen freien Text, v2 lehnt unbekannte Zahlungsarten
+        // ab (payment_method_not_found). Beim Uebernehmen wird sie bei Bedarf angelegt (PaymentMethodEnsurer).
+        if ($factory !== null && (int) ($values['invoice_creation_enabled'] ?? 0) === 1 && (int) ($values['invoice_suppress_and_adjust_stock'] ?? 0) === 0) {
+            $rows[] = $this->paymentMethodRow((string) ($values['invoice_payment_method'] ?? ''), $shop, $legacy, $hcConnection, $factory);
+        }
 
         // SMTP-Passwort
         $legacySmtpPassword = (string) ($legacy['invoice']['smtp_password'] ?? '');
@@ -303,8 +311,22 @@ final class ShopMigrator
             }
         }
 
-        // 3. Aktivierungen (gleiche Zeilen, wie sie die Einstellungsseite anlegen wuerde)
         $shopRow = $this->connectShop($shop) ?? [];
+
+        // 2b. Zahlungsart im Kassensystem anlegen, falls sie fehlt (API v2 lehnt unbekannte ab). Braucht die
+        // eben gespeicherten Einstellungen und die Ziel-Connection; schlaegt es fehl, wird nur berichtet.
+        if ((int) ($shopRow['invoice_creation_enabled'] ?? 0) === 1 && (int) ($shopRow['invoice_suppress_and_adjust_stock'] ?? 0) === 0 && ($shopRow['target_connection_id'] ?? null) !== null) {
+            $ensured = (new \Connect\Sync\PaymentMethodEnsurer($this->pdo, $factory))->ensureForShop($shop);
+            if ($ensured['status'] === 'created') {
+                $notes[] = $ensured['message'];
+            } elseif ($ensured['status'] === 'failed') {
+                $notes[] = 'Achtung: ' . $ensured['message'];
+            } elseif ($ensured['status'] === 'unavailable') {
+                $notes[] = 'Zahlungsart nicht geprüft: ' . $ensured['message'];
+            }
+        }
+
+        // 3. Aktivierungen (gleiche Zeilen, wie sie die Einstellungsseite anlegen wuerde)
         $shopify = $this->pdo->prepare(
             "SELECT c.id, o_order.id AS order_object_id, o_product.id AS product_object_id
              FROM connect_connections c
@@ -380,6 +402,83 @@ final class ShopMigrator
         }
 
         return $notes;
+    }
+
+    /**
+     * Zeile "Zahlungsart in helloCash": existiert sie im Konto? Prueft live (nur lesend) mit der
+     * bestehenden Connection, sonst mit dem vorab hinterlegten bzw. dem Token der alten Welt.
+     * Ein v1-Token hat keine v2-Rechte -- dann nicht pruefbar, das steht in der Zeile.
+     *
+     * @param array<string, mixed> $legacy
+     * @param array<string, mixed>|null $hcConnection
+     * @return array{area: string, label: string, legacy: string, connect: string, status: string, note: ?string}
+     */
+    private function paymentMethodRow(string $name, string $shop, array $legacy, ?array $hcConnection, ConnectorFactory $factory): array
+    {
+        $row = ['area' => 'Rechnung', 'label' => 'Zahlungsart in helloCash', 'legacy' => $name !== '' ? $name : '–', 'connect' => 'nicht prüfbar', 'status' => self::STATUS_MANUAL, 'note' => null];
+        if ($name === '') {
+            $row['note'] = 'Keine Zahlungsart eingestellt – Rechnungen gehen ohne Zahlungsart raus.';
+            $row['status'] = self::STATUS_SAME;
+            $row['connect'] = '–';
+
+            return $row;
+        }
+
+        try {
+            $connector = null;
+            if ($hcConnection !== null) {
+                $connector = $factory->forConnection((int) $hcConnection['id']);
+            } else {
+                $accessCheck = new \Connect\Setup\TargetAccessCheck($this->pdo, $this->crypto, $factory);
+                $token = $accessCheck->preparedToken($shop) ?? trim((string) ($legacy['binding']['token'] ?? ''));
+                $typeId = \Connect\Setup\TargetAccessCheck::helloCashTypeId($this->pdo);
+                if ($token === '' || $typeId === null) {
+                    $row['note'] = 'Ohne helloCash-Token nicht prüfbar.';
+
+                    return $row;
+                }
+                [$credentials] = \Connect\Setup\TargetAccessCheck::buildCredentials($this->pdo, $this->crypto, $typeId, $shop, $token);
+                $connector = $factory->forCredentials($typeId, $credentials);
+            }
+
+            if (!$connector instanceof \Connect\Connector\Generic\GenericHttpConnector || !$connector->hasOperation('payment_method', 'read_list')) {
+                $row['note'] = 'Im Connector Builder (helloCash) fehlt das Object „payment_method“ mit „Lesen (Liste)“ – dann kann Connect die Zahlungsarten nicht prüfen.';
+
+                return $row;
+            }
+
+            $found = false;
+            foreach ($connector->read('payment_method') as $record) {
+                $status = strtolower((string) ($record['status'] ?? 'active'));
+                if (strcasecmp(trim((string) ($record['name'] ?? '')), $name) === 0 && in_array($status, ['active', '1', 'true'], true)) {
+                    $found = true;
+                    break;
+                }
+            }
+        } catch (\Throwable $e) {
+            $message = $e->getMessage();
+            $row['note'] = preg_match('/403|scope/i', $message) === 1
+                ? 'Der Token hat noch keine v2-Berechtigung für Zahlungsarten (alter v1-Token?) – prüfbar, sobald der Händler einen v2-Token hinterlegt hat.'
+                : 'Prüfung nicht möglich: ' . mb_substr($message, 0, 200);
+
+            return $row;
+        }
+
+        if ($found) {
+            $row['connect'] = 'in helloCash vorhanden';
+            $row['status'] = self::STATUS_SAME;
+
+            return $row;
+        }
+
+        $row['connect'] = 'fehlt in helloCash';
+        $canCreate = $connector->hasOperation('payment_method', 'create');
+        $row['status'] = $canCreate ? self::STATUS_CHANGE : self::STATUS_MANUAL;
+        $row['note'] = $canCreate
+            ? 'Wird beim Übernehmen automatisch in helloCash angelegt (API v2 lehnt unbekannte Zahlungsarten ab).'
+            : 'Fehlt in helloCash und Connect kann sie nicht anlegen (im Connector Builder fehlt „Anlegen“ am Object „payment_method“) – von Hand in helloCash anlegen.';
+
+        return $row;
     }
 
     // =========================================================================
