@@ -537,7 +537,13 @@ final class ShopMigrator
         if ($stock !== null) {
             $values['stock_sync_enabled'] = ($stock['enabled'] ?? '') === 'aktiv' ? 1 : 0;
             $values['stock_sync_direction'] = ($stock['direction'] ?? '') === 'shopify->helloCash' ? 'shopify_to_target' : 'target_to_shopify';
-            $values['stock_primary_location_id'] = $this->mapLocation($shop, (string) ($stock['primary_location'] ?? ''));
+            // Wie die alte Welt (get_selected_location_id(), cron_sync_stock.php): ist im Lager-Setup kein
+            // Standort gewaehlt (leer oder 0), gilt der Standort aus der Artikel-Bindung (hellocash_binding.id_location)
+            $legacyLocation = trim((string) ($stock['primary_location'] ?? ''));
+            if ($legacyLocation === '' || $legacyLocation === '0') {
+                $legacyLocation = trim((string) ($binding['id_location'] ?? ''));
+            }
+            $values['stock_primary_location_id'] = $this->mapLocation($shop, $legacyLocation);
 
             // Rueckbuchung bei Kassenverkauf (Migration 0104): nur bei Richtung Shopify -> Kasse, dort ersetzt
             // sie den alten Job. Startzeitpunkt = jetzt, damit alte Rechnungen nicht nachtraeglich laufen.
