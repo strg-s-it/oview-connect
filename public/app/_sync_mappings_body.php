@@ -1742,14 +1742,22 @@ require __DIR__ . '/_header.php';
                         </p>
                         <form method="post" class="row g-2">
                             <input type="hidden" name="action" value="save_stock_settings">
+                            <?php $stockEnabled = ((int) $shopSettings['stock_sync_enabled']) === 1; ?>
+                            <div class="col-12">
+                                <label class="form-check">
+                                    <input type="checkbox" name="stock_sync_enabled" class="form-check-input" <?php echo $stockEnabled ? 'checked' : ''; ?> onchange="document.getElementById('stock-details').hidden = !this.checked;">
+                                    <span class="form-check-label">Bestand automatisch abgleichen</span>
+                                </label>
+                            </div>
+                            <div id="stock-details" class="col-12" <?php echo $stockEnabled ? '' : 'hidden'; ?>><div class="row g-2">
                             <div class="col-12">
                                 <label class="form-label">Wo pflegst du deinen Bestand?</label>
                                 <label class="form-check">
-                                    <input type="radio" name="stock_sync_direction" class="form-check-input" value="shopify_to_target" <?php echo $shopSettings['stock_sync_direction'] === 'shopify_to_target' ? 'checked' : ''; ?>>
+                                    <input type="radio" name="stock_sync_direction" class="form-check-input" value="shopify_to_target" onchange="document.getElementById('stock-reserve-field').hidden = true; var b = document.getElementById('stock-back-field'); if (b) { b.hidden = false; }" <?php echo $shopSettings['stock_sync_direction'] === 'shopify_to_target' ? 'checked' : ''; ?>>
                                     <span class="form-check-label">In Shopify <span class="text-secondary small">– <?php echo htmlspecialchars($targetName); ?> übernimmt den Bestand aus Shopify</span></span>
                                 </label>
                                 <label class="form-check">
-                                    <input type="radio" name="stock_sync_direction" class="form-check-input" value="target_to_shopify" <?php echo $shopSettings['stock_sync_direction'] === 'target_to_shopify' ? 'checked' : ''; ?>>
+                                    <input type="radio" name="stock_sync_direction" class="form-check-input" value="target_to_shopify" onchange="document.getElementById('stock-reserve-field').hidden = false; var b = document.getElementById('stock-back-field'); if (b) { b.hidden = true; }" <?php echo $shopSettings['stock_sync_direction'] === 'target_to_shopify' ? 'checked' : ''; ?>>
                                     <span class="form-check-label">In <?php echo htmlspecialchars($targetName); ?> <span class="text-secondary small">– Shopify übernimmt den Bestand aus <?php echo htmlspecialchars($targetName); ?></span></span>
                                 </label>
                             </div>
@@ -1770,7 +1778,8 @@ require __DIR__ . '/_header.php';
                                 <?php endif; ?>
                             </div>
                             <?php $stockRules = \Connect\Sync\ShopStockRules::forShop($pdo, $shop); ?>
-                            <div class="col-md-6">
+                            <?php $stockDirection = (string) $shopSettings['stock_sync_direction']; ?>
+                            <div class="col-md-6" id="stock-reserve-field" <?php echo $stockDirection === 'target_to_shopify' ? '' : 'hidden'; ?>>
                                 <label class="form-label" for="stock-safety-buffer">Reserve für den Laden</label>
                                 <div class="input-group">
                                     <input id="stock-safety-buffer" type="number" min="0" max="999" name="stock_safety_buffer" class="form-control" value="<?php echo (int) $stockRules['buffer']; ?>">
@@ -1780,7 +1789,7 @@ require __DIR__ . '/_header.php';
                             </div>
                             <?php $stockBackMerchant = \Connect\Setup\StockBackSettings::state($pdo, $shop); ?>
                             <?php if ($stockBackMerchant !== null && ($stockBackMerchant['available'] || $stockBackMerchant['enabled'])): ?>
-                                <div class="col-12">
+                                <div class="col-12" id="stock-back-field" <?php echo $stockDirection === 'shopify_to_target' ? '' : 'hidden'; ?>>
                                     <input type="hidden" name="stock_back_present" value="1">
                                     <label class="form-check">
                                         <input type="checkbox" name="stock_back_enabled" class="form-check-input" <?php echo $stockBackMerchant['enabled'] ? 'checked' : ''; ?>>
@@ -1789,11 +1798,7 @@ require __DIR__ . '/_header.php';
                                     <small class="text-secondary d-block">Nur wenn du den Bestand in Shopify pflegst: verkaufst du etwas an der Kasse, trägt oView den neuen Kassenbestand in Shopify nach. Sonst würde der nächste Abgleich den Verkauf wieder überschreiben. Gilt für Verkäufe ab dem Einschalten.</small>
                                 </div>
                             <?php endif; ?>
-                            <div class="col-12">
-                                <label class="form-check">
-                                    <input type="checkbox" name="stock_sync_enabled" class="form-check-input" <?php echo ((int) $shopSettings['stock_sync_enabled']) === 1 ? 'checked' : ''; ?>>
-                                    <span class="form-check-label">Bestand automatisch abgleichen</span>
-                                </label>
+                            </div>
                             </div>
                             <div class="col-12">
                                 <button type="submit" class="btn btn-primary">Speichern</button>
@@ -1920,10 +1925,11 @@ require __DIR__ . '/_header.php';
                         <input type="hidden" name="action" value="save_invoice_settings">
                         <div class="col-12">
                             <label class="form-check">
-                                <input type="checkbox" name="invoice_creation_enabled" class="form-check-input" <?php echo ((int) $shopSettings['invoice_creation_enabled']) === 1 ? 'checked' : ''; ?>>
+                                <input type="checkbox" name="invoice_creation_enabled" class="form-check-input" <?php echo ((int) $shopSettings['invoice_creation_enabled']) === 1 ? 'checked' : ''; ?> onchange="document.getElementById('invoice-details').hidden = !this.checked;">
                                 <span class="form-check-label">Rechnungen automatisch anlegen</span>
                             </label>
                         </div>
+                        <div id="invoice-details" class="col-12" <?php echo ((int) $shopSettings['invoice_creation_enabled']) === 1 ? '' : 'hidden'; ?>><div class="row g-2">
                         <div class="col-12">
                             <label class="form-check">
                                 <input type="checkbox" name="invoice_pos_only" class="form-check-input" <?php echo ((int) $shopSettings['invoice_pos_only']) === 1 ? 'checked' : ''; ?>>
@@ -1931,6 +1937,14 @@ require __DIR__ . '/_header.php';
                             </label>
                             <small class="text-secondary d-block">Online-Bestellungen werden dann ignoriert — z. B. wenn diese anderweitig abgerechnet werden.</small>
                         </div>
+                        <div class="col-12">
+                            <label class="form-check">
+                                <input type="checkbox" name="invoice_suppress_and_adjust_stock" class="form-check-input" id="invoice-suppress-toggle" <?php echo ((int) $shopSettings['invoice_suppress_and_adjust_stock']) === 1 ? 'checked' : ''; ?> onchange="document.getElementById('invoice-normal-fields').hidden = this.checked; if (this.checked) { document.getElementById('invoice-mail-toggle').checked = false; document.getElementById('invoice-mail-fields').hidden = true; }">
+                                <span class="form-check-label">Keine Rechnung erstellen, nur den Bestand abbuchen</span>
+                            </label>
+                            <small class="text-secondary d-block">Wenn du die Rechnung anderswo erstellst: oView bucht dann nur die verkauften Stück in <?php echo htmlspecialchars($targetName); ?> ab. Kassierer, Zahlungsart und Rechnungsmail fallen weg.</small>
+                        </div>
+                        <div id="invoice-normal-fields" class="row g-2" <?php echo ((int) $shopSettings['invoice_suppress_and_adjust_stock']) === 1 ? 'hidden' : ''; ?>>
                         <?php if ($shopSettings['invoice_signature_mandatory'] !== null): ?>
                             <div class="col-12">
                                 <label class="form-check">
@@ -1940,14 +1954,6 @@ require __DIR__ . '/_header.php';
                                 <small class="text-secondary d-block">Rechnungen werden in <?php echo htmlspecialchars($targetName); ?> mit Signatur der Registrierkasse erstellt. Frag im Zweifel deine Steuerberatung.</small>
                             </div>
                         <?php endif; ?>
-                        <div class="col-12">
-                            <label class="form-check">
-                                <input type="checkbox" name="invoice_suppress_and_adjust_stock" class="form-check-input" id="invoice-suppress-toggle" <?php echo ((int) $shopSettings['invoice_suppress_and_adjust_stock']) === 1 ? 'checked' : ''; ?> onchange="document.getElementById('invoice-normal-fields').hidden = this.checked; if (this.checked) { document.getElementById('invoice-mail-toggle').checked = false; document.getElementById('invoice-mail-fields').hidden = true; }">
-                                <span class="form-check-label">Keine Rechnung erstellen, nur den Bestand abbuchen</span>
-                            </label>
-                            <small class="text-secondary d-block">Wenn du die Rechnung anderswo erstellst: oView bucht dann nur die verkauften Stück in <?php echo htmlspecialchars($targetName); ?> ab. Kassierer, Zahlungsart und Rechnungsmail fallen weg.</small>
-                        </div>
-                        <div id="invoice-normal-fields" class="row g-2" <?php echo ((int) $shopSettings['invoice_suppress_and_adjust_stock']) === 1 ? 'hidden' : ''; ?>>
                         <div class="col-md-4">
                             <label class="form-label">Rechnung erstellt von</label>
                             <select name="invoice_cashier_id" class="form-select">
@@ -2073,15 +2079,18 @@ require __DIR__ . '/_header.php';
                                     </div>
                                 </details>
                             </div>
+                            <?php if ($attachmentsSupported && ((int) $shopSettings['invoice_mail_enabled']) !== 1): ?>
+                                <div class="col-12 text-secondary small">Anhänge wie AGB oder Widerrufsbelehrung kannst du nach dem Speichern weiter unten hinzufügen.</div>
+                            <?php endif; ?>
                         </div>
-                        </div>
+                        </div></div></div>
 
                         <div class="col-12 mt-2">
                             <button type="submit" class="btn btn-primary">Speichern</button>
                         </div>
                     </form>
 
-                    <?php if ($attachmentsSupported): ?>
+                    <?php if ($attachmentsSupported && ((int) $shopSettings['invoice_creation_enabled']) === 1 && ((int) $shopSettings['invoice_mail_enabled']) === 1 && ((int) $shopSettings['invoice_suppress_and_adjust_stock']) === 0): ?>
                     <hr class="my-4">
                     <h4 class="mb-1"><?php echo \Connect\Ui\Icon::svg('files', 18, 'me-1'); ?>Anhänge an der Rechnungsmail</h4>
                     <p class="text-secondary small mb-2">Diese PDFs werden jeder Rechnungsmail zusätzlich angehängt – z. B. Widerrufsbelehrung (im Online-Handel muss sie dem Kunden in Textform vorliegen), AGB oder Pflegehinweise. Höchstens <?php echo \Connect\Mail\ShopAttachments::MAX_FILES; ?> Dateien zu je <?php echo round(\Connect\Mail\ShopAttachments::MAX_BYTES / 1000000, 1); ?> MB.</p>
@@ -2117,9 +2126,6 @@ require __DIR__ . '/_header.php';
                                 <input type="file" name="attachment" accept="application/pdf,.pdf" class="form-control" style="max-width: 360px" required>
                                 <button type="submit" class="btn btn-outline-primary">Hochladen</button>
                             </form>
-                        <?php endif; ?>
-                        <?php if ((int) $shopSettings['invoice_mail_enabled'] !== 1): ?>
-                            <div class="small text-warning mt-2">Hinweis: Die Rechnungsmail ist oben ausgeschaltet – Anhänge werden erst verschickt, wenn sie aktiv ist.</div>
                         <?php endif; ?>
                     <?php endif; ?>
                     <?php endif; ?>
