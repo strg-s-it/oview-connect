@@ -50,6 +50,31 @@ final class JobScheduler
      */
     public static function now(PDO $pdo, array $mappingIds): int
     {
+        if ($mappingIds === []) {
+            return 0;
+        }
+
+        // Unter derselben benannten Sperre wie das Einreihen im Scheduler (bin/scheduler.php): sonst
+        // sehen "jetzt einplanen" (Umzug, Umschalten, Knopf) und der Scheduler zur selben Sekunde beide
+        // "noch kein Job wartend" und legen je einen an -- derselbe Job liefe dann zweimal. Nur auf
+        // oberster Ebene (MariaDB 5.5 gibt bei einem zweiten GET_LOCK die erste Sperre frei); hier
+        // haelt der Aufrufer keine andere Sperre. Ohne die Sperre (Timeout) wird nichts eingeplant,
+        // der Scheduler reiht faellige Jobs ohnehin selbst ein.
+        if ((int) $pdo->query("SELECT GET_LOCK('connect_enqueue', 10)")->fetchColumn() !== 1) {
+            return 0;
+        }
+        try {
+            return self::nowLocked($pdo, $mappingIds);
+        } finally {
+            $pdo->query("SELECT RELEASE_LOCK('connect_enqueue')");
+        }
+    }
+
+    /**
+     * @param list<int> $mappingIds
+     */
+    private static function nowLocked(PDO $pdo, array $mappingIds): int
+    {
         $count = 0;
         foreach ($mappingIds as $mappingId) {
             $open = $pdo->prepare("SELECT id, status FROM connect_sync_jobs WHERE sync_mapping_id = :id AND status IN ('pending', 'running') ORDER BY id DESC LIMIT 1");
