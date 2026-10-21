@@ -414,6 +414,14 @@ final class DocumentPipeline
 
         $created = $targetConnector->write($objectKey, 'create', $customerData);
         if (!$created->success) {
+            // helloCash legt neue Kunden nur fuer bestimmte Laender an (country_code-Enum, API v2); die alte
+            // API nahm jedes Land. Mit einer verstaendlichen Meldung statt "country_code field is required".
+            $country = strtoupper(trim((string) ($record['country'] ?? '')));
+            if (str_contains($created->message, 'country_code') && $country !== '' && !in_array(strtolower($country), InvoiceService::HELLOCASH_COUNTRIES, true)) {
+                $notes[] = 'Kein Kunde angelegt: Das Land "' . $country . '" wird von helloCash für neue Kunden nicht unterstützt (möglich: '
+                    . strtoupper(implode(', ', InvoiceService::HELLOCASH_COUNTRIES)) . '). Die Rechnung wurde ohne Kunden erstellt.';
+                return null;
+            }
             $notes[] = 'Kunde konnte nicht angelegt werden: ' . $created->message;
             return null;
         }

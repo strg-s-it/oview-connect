@@ -79,7 +79,7 @@ use PDO;
 final class InvoiceService
 {
     /** Von HelloCash fuer NEUE Kunden akzeptierte Laender (POST /customers, country_code-Enum). */
-    private const HELLOCASH_COUNTRIES = ['at', 'de', 'cz', 'ch', 'sk', 'hu', 'bg', 'pl', 'ro', 'fr', 'es'];
+    public const HELLOCASH_COUNTRIES = ['at', 'de', 'cz', 'ch', 'sk', 'hu', 'bg', 'pl', 'ro', 'fr', 'es'];
 
     /** Kundenzuordnung (connect_shops.invoice_customer_match, Migration 0095) */
     public const CUSTOMER_MATCH_EMAIL_NAME = 'email_name';
