@@ -1067,6 +1067,24 @@ if ($shopSettings['target_connection_id'] !== null) {
     $helloCashEmployees = (new \Connect\Sync\ObjectCache($pdo))->getCached((int) $shopSettings['target_connection_id'], 'employee');
 }
 
+// Zahlungsart-Auswahl: Object "payment_method" (GET /payment-methods, Scope payment_methods:read),
+// per Connector Builder angelegt wie "employee". Fehlt der Cache, bleibt es ein Textfeld.
+$helloCashPaymentMethods = [];
+if ($shopSettings['target_connection_id'] !== null) {
+    try {
+        foreach ((new \Connect\Sync\ObjectCache($pdo))->getCached((int) $shopSettings['target_connection_id'], 'payment_method') as $pm) {
+            $pmName = trim((string) ($pm['name'] ?? ''));
+            $pmStatus = strtolower((string) ($pm['status'] ?? 'active'));
+            if ($pmName !== '' && ($pmStatus === 'active' || $pmStatus === '1' || $pmStatus === 'true')) {
+                $helloCashPaymentMethods[$pmName] = $pmName;
+            }
+        }
+    } catch (\Throwable $e) {
+        $helloCashPaymentMethods = [];
+    }
+    ksort($helloCashPaymentMethods);
+}
+
 // Fuer den Merchant-Einrichtungswizard: alle Zielsystem-Optionen ausser
 // Shopify (das ist immer die feste Quelle, siehe auch admin/shops.php),
 // private Typen nur fuer Shops mit bestehender Connection (Migration 0096).
@@ -1874,7 +1892,23 @@ require __DIR__ . '/_header.php';
                         </div>
                         <div class="col-md-4">
                             <label class="form-label">Zahlungsart</label>
-                            <input type="text" name="invoice_payment_method" class="form-control" value="<?php echo htmlspecialchars((string) $shopSettings['invoice_payment_method']); ?>" placeholder="z. B. Webshop">
+                            <?php $currentPaymentMethod = (string) $shopSettings['invoice_payment_method']; ?>
+                            <?php if (count($helloCashPaymentMethods) > 0): ?>
+                                <select name="invoice_payment_method" class="form-select">
+                                    <?php if ($currentPaymentMethod !== '' && !isset($helloCashPaymentMethods[$currentPaymentMethod])): ?>
+                                        <option value="<?php echo htmlspecialchars($currentPaymentMethod); ?>" selected>&#9888; <?php echo htmlspecialchars($currentPaymentMethod); ?> (in <?php echo htmlspecialchars($targetName); ?> nicht gefunden)</option>
+                                    <?php endif; ?>
+                                    <?php foreach ($helloCashPaymentMethods as $pmName): ?>
+                                        <option value="<?php echo htmlspecialchars($pmName); ?>" <?php echo $pmName === $currentPaymentMethod ? 'selected' : ''; ?>><?php echo htmlspecialchars($pmName); ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                                <?php if ($currentPaymentMethod !== '' && !isset($helloCashPaymentMethods[$currentPaymentMethod])): ?>
+                                    <small class="text-danger">Diese Zahlungsart gibt es in <?php echo htmlspecialchars($targetName); ?> nicht (oder sie ist deaktiviert) – Rechnungen schlagen fehl. Bitte eine andere wählen.</small>
+                                <?php endif; ?>
+                            <?php else: ?>
+                                <input type="text" name="invoice_payment_method" class="form-control" value="<?php echo htmlspecialchars($currentPaymentMethod); ?>" placeholder="z. B. Webshop">
+                                <small class="text-secondary">Muss genau so in <?php echo htmlspecialchars($targetName); ?> als aktive Zahlungsart existieren.</small>
+                            <?php endif; ?>
                         </div>
                         <div class="col-md-4">
                             <label class="form-label">Bei Problemen Mail an</label>
