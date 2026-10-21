@@ -472,6 +472,12 @@ final class SyncRunner
                 if ($ensured['message'] !== '' && $ensured['status'] !== 'unavailable') {
                     $this->log($ensured['message']);
                 }
+
+                // Dasselbe fuer die Steuersaetze der Bestellung (z. B. 19 % bei einem oesterreichischen Konto)
+                $taxEnsured = (new TaxRateEnsurer($this->pdo, $this->connectorFactory))->ensureForOrder((string) $mapping['shop'], $sourceRow);
+                if ($taxEnsured['message'] !== '' && $taxEnsured['status'] !== 'unavailable') {
+                    $this->log($taxEnsured['message']);
+                }
             }
 
             // Belegerstellung ueber die Oberflaeche (Migration 0067): Vorlage mit
