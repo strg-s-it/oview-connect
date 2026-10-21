@@ -57,8 +57,8 @@ final class TaxRateEnsurer
 
         try {
             $cache = new ObjectCache($this->pdo);
-            $missing = self::missing($cache->getCached($connectionId, self::OBJECT_KEY), $rates);
-            if ($missing === []) {
+            $plan = self::plan($cache->getCached($connectionId, self::OBJECT_KEY), $rates);
+            if ($plan['missing'] === [] && $plan['inactive'] === []) {
                 return ['status' => 'exists', 'message' => ''];
             }
 
@@ -80,24 +80,46 @@ final class TaxRateEnsurer
 
             // Frisch laden: der Zwischenspeicher kann veraltet sein (Haendler hat den Satz gerade selbst angelegt)
             $cache->refresh($connector, $connectionId, $object);
-            $fresh = $cache->getCached($connectionId, self::OBJECT_KEY);
-            $missing = self::missing($fresh, $rates);
+            $plan = self::plan($cache->getCached($connectionId, self::OBJECT_KEY), $rates);
 
             $created = [];
             $failed = [];
-            foreach ($missing as $rate) {
+
+            // Vorhanden, aber inaktiv: wieder aktivieren (PUT /tax-rates/{id}, nur das Feld status)
+            foreach ($plan['inactive'] as $rateKey => $inactiveId) {
+                $rate = (float) $rateKey;
+                $label = self::label($rate);
+                if (!$connector->hasOperation(self::OBJECT_KEY, 'update')) {
+                    $failed[] = "{$label}: ist in der Kasse inaktiv und muss dort aktiviert werden (Operation \"Aktualisieren\" fehlt am Object)";
+                    continue;
+                }
+                $result = $connector->write(self::OBJECT_KEY, 'update', ['id' => $inactiveId, 'status' => 'active']);
+                if ($result->success) {
+                    $created[] = $label . ' (wieder aktiviert)';
+                    ActivityLog::log($this->pdo, $shop, null, self::OBJECT_KEY, 'update', true, "Steuersatz {$label} wurde wieder aktiviert.", $inactiveId, $result->requestBody, $result->responseBody);
+                } else {
+                    $failed[] = $label . ': ' . $result->message;
+                    ActivityLog::log($this->pdo, $shop, null, self::OBJECT_KEY, 'update', false, "Steuersatz {$label} konnte nicht aktiviert werden: " . $result->message, $inactiveId, $result->requestBody, $result->responseBody);
+                }
+            }
+
+            foreach ($plan['missing'] as $rate) {
                 $result = $connector->write(self::OBJECT_KEY, 'create', ['tax_rate' => $rate, 'status' => 'active']);
                 $label = self::label($rate);
                 if ($result->success) {
                     $created[] = $label;
                     ActivityLog::log($this->pdo, $shop, null, self::OBJECT_KEY, 'create', true, "Steuersatz {$label} wurde automatisch angelegt.", null, $result->requestBody, $result->responseBody);
                 } else {
-                    $failed[] = $label . ': ' . $result->message;
+                    $hint = str_contains($result->message, 'duplicate_tax_rate')
+                        ? ' – der Satz existiert schon, ist aber inaktiv und im Zwischenspeicher nicht sichtbar: die Lese-Operation des Objects auf status=all stellen (Adresse tax-rates?status=all&limit=250&offset={{offset}}) oder den Satz in der Kasse aktivieren'
+                        : '';
+                    $failed[] = $label . ': ' . $result->message . $hint;
                     ActivityLog::log($this->pdo, $shop, null, self::OBJECT_KEY, 'create', false, "Steuersatz {$label} konnte nicht angelegt werden: " . $result->message, null, $result->requestBody, $result->responseBody);
                 }
             }
 
             if ($created !== []) {
+
                 try {
                     $cache->refresh($connector, $connectionId, $object);
                 } catch (\Throwable) {
@@ -139,36 +161,47 @@ final class TaxRateEnsurer
     /**
      * @param array<int, array<string, mixed>> $records Zwischenspeicher des Objects "tax_rate"
      * @param list<float> $rates
-     * @return list<float> Saetze, die nicht als aktiver Satz vorhanden sind
+     * @return array{missing: list<float>, inactive: array<string, string>} missing = gar nicht vorhanden;
+     *         inactive = vorhanden aber nicht aktiv (Schluessel = Satz als Text, Wert = ID im Kassensystem)
      */
-    private static function missing(array $records, array $rates): array
+    private static function plan(array $records, array $rates): array
     {
         $active = [];
+        $inactive = [];
         foreach ($records as $record) {
+            if (!is_numeric($record['tax_rate'] ?? null)) {
+                continue;
+            }
             $status = strtolower((string) ($record['status'] ?? 'active'));
-            if (is_numeric($record['tax_rate'] ?? null) && in_array($status, ['active', '1', 'true'], true)) {
+            if (in_array($status, ['active', '1', 'true'], true)) {
                 $active[] = (float) $record['tax_rate'];
+            } elseif (($record['id'] ?? '') !== '') {
+                $inactive[] = [(float) $record['tax_rate'], (string) $record['id']];
             }
         }
 
         $missing = [];
+        $reactivate = [];
         foreach ($rates as $rate) {
-            $found = false;
             foreach ($active as $existing) {
                 if (abs($existing - $rate) < 0.001) {
-                    $found = true;
-                    break;
+                    continue 2;
                 }
             }
-            if (!$found) {
-                $missing[] = $rate;
+            foreach ($inactive as [$existing, $id]) {
+                if (abs($existing - $rate) < 0.001) {
+                    $reactivate[(string) $rate] = $id;
+                    continue 2;
+                }
             }
+            $missing[] = $rate;
         }
 
-        return $missing;
+        return ['missing' => $missing, 'inactive' => $reactivate];
     }
 
-    private static function label(float $rate): string
+    private static function label
+(float $rate): string
     {
         return rtrim(rtrim(number_format($rate, 2, ',', ''), '0'), ',') . ' %';
     }
