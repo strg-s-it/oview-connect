@@ -332,6 +332,10 @@ final class MerchantOverview
         $message = $error['message'];
 
         [$text, $action] = match (true) {
+            (bool) preg_match('/payment_method_not_found|payment method/i', $message)
+                => ['Die eingestellte Zahlungsart gibt es in ' . $targetName . ' nicht oder sie ist deaktiviert. Wähle in den Rechnungs-Einstellungen eine vorhandene Zahlungsart und speichere.', ['Zahlungsart prüfen', 'sync_mappings.php#setup-invoice']],
+            (bool) preg_match('/tax_rate_not_found/i', $message)
+                => ['Der Steuersatz einer Position gibt es in ' . $targetName . ' nicht als aktiven Steuersatz. Bitte prüfe die Steuersätze in ' . $targetName . '.', ['Rechnungen ansehen', 'invoices.php']],
             (bool) preg_match('/nicht gefunden|kein(en)? (passenden )?Artikel|not found|fehlt in/i', $message)
                 => ['Ein Artikel aus der Bestellung fehlt in ' . $targetName . ' oder hat eine andere Artikelnummer. Lege ihn an oder korrigiere die Nummer.', ['Produkte ansehen', 'products.php']],
             (bool) preg_match('/Kontrolle fehlgeschlagen|stimmt nicht|Abweichung/i', $message)
