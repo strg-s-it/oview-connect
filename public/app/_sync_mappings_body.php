@@ -489,7 +489,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'conne
     $flashType = !$targetResult['ok'] ? 'danger' : ($targetResult['connected'] ? 'success' : 'info');
 }
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_invoice_settings' && isset($_POST['test_smtp'])) {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_invoice_settings' && isset($_POST['refresh_payment_methods'])) {
+    // Knopf "Liste aktualisieren" bei der Zahlungsart: Zahlungsarten sofort frisch aus dem Zielsystem
+    // laden (statt auf den naechsten Lauf der Sync-Job-Vorlage zu warten), speichert nichts.
+    try {
+        $pmTargetId = (int) ($pdo->query('SELECT target_connection_id FROM connect_shops WHERE shop = ' . $pdo->quote($shop))->fetchColumn() ?: 0);
+        $pmObjectStmt = $pdo->prepare(
+            "SELECT o.id FROM connect_objects o JOIN connect_connections c ON c.connector_type_id = o.connector_type_id
+             WHERE c.id = :conn AND o.object_key = 'payment_method' LIMIT 1"
+        );
+        $pmObjectStmt->execute(['conn' => $pmTargetId]);
+        $pmObjectId = (int) $pmObjectStmt->fetchColumn();
+        if ($pmTargetId === 0 || $pmObjectId === 0) {
+            throw new \RuntimeException('Die Zahlungsarten sind für dieses System nicht eingerichtet.');
+        }
+        $pmFactory = $buildFactory();
+        $pmCount = (new \Connect\Sync\ObjectCache($pdo))->refresh($pmFactory->forConnection($pmTargetId), $pmTargetId, $pmFactory->objectDefinitionById($pmObjectId), [], null)['processed'];
+        $flashMessage = 'Zahlungsarten aktualisiert (' . $pmCount . ' gefunden).';
+        $flashType = 'success';
+    } catch (\Throwable $e) {
+        $flashMessage = 'Zahlungsarten konnten nicht geladen werden: ' . $e->getMessage();
+        $flashType = 'danger';
+    }
+} elseif ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_invoice_settings' && isset($_POST['test_smtp'])) {
     // Verbindungstest (eigener Button bei den SMTP-Feldern): prueft nur Login,
     // sendet keine Mail und speichert nichts. Nutzt die GERADE eingegebenen
     // Werte; ein leeres Passwortfeld greift wie beim Speichern auf das bereits
