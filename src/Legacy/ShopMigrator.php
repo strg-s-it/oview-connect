@@ -198,10 +198,24 @@ final class ShopMigrator
             $rows[] = ['area' => 'Rechnung', 'label' => 'Signatur erforderlich', 'legacy' => 'an', 'connect' => '–', 'status' => self::STATUS_MANUAL, 'note' => 'Braucht Migration 0072 (php connect/bin/install.php), danach wird der Wert übernommen.'];
         }
         if (trim((string) ($inv['invoice_prefix'] ?? '')) !== '') {
-            $rows[] = ['area' => 'Rechnung', 'label' => 'Präfix im Rechnungstext', 'legacy' => (string) $inv['invoice_prefix'], 'connect' => '–', 'status' => self::STATUS_MANUAL, 'note' => 'In Connect über den Rechnungstext der Vorlage abbilden.'];
+            // In der alten Welt nur der Dateiname des PDF-Anhangs der Rechnungsmail (<Praefix>_<Nr>.pdf, cron_send_mail.php),
+            // nicht der Rechnungstext. Connect nennt den Anhang Rechnung_<Nr>.pdf.
+            $rows[] = ['area' => 'Rechnung', 'label' => 'Präfix im Dateinamen des Mail-Anhangs', 'legacy' => (string) $inv['invoice_prefix'], 'connect' => 'Rechnung_<Nr>.pdf', 'status' => self::STATUS_SAME, 'note' => 'Betrifft nur den Dateinamen des PDF in der Rechnungsmail, nicht die Rechnung selbst. Connect benennt ihn „Rechnung_<Nr>.pdf“ – kein Handlungsbedarf.'];
         }
-        if (($inv['allow_empty_customers'] ?? 'false') === 'true') {
-            $rows[] = ['area' => 'Rechnung', 'label' => 'Rechnung ohne Kunde erlauben', 'legacy' => 'an', 'connect' => 'immer erlaubt', 'status' => self::STATUS_SAME, 'note' => 'Connect legt die Rechnung ohne Kunden-ID an, wenn keiner zugeordnet werden kann.'];
+        // Connect legt die Rechnung ohne Kunden-ID an, wenn keiner zugeordnet werden kann. Die alte Welt tat das nur
+        // mit "Rechnung ohne Kunde erlauben"; sonst stoppte sie die Bestellung und schickte eine Fehler-Mail.
+        $allowEmpty = ($inv['allow_empty_customers'] ?? 'false') === 'true';
+        if ($inv !== []) {
+            $rows[] = [
+                'area' => 'Rechnung',
+                'label' => 'Rechnung ohne Kunde erlauben',
+                'legacy' => $allowEmpty ? 'an' : 'nein',
+                'connect' => 'immer erlaubt',
+                'status' => self::STATUS_SAME,
+                'note' => $allowEmpty
+                    ? 'Connect legt die Rechnung ohne Kunden-ID an, wenn keiner zugeordnet werden kann.'
+                    : 'Unterschied: Die alte Welt hat eine Bestellung ohne Kundenname oder bei gescheiterter Kundenanlage angehalten (Fehler-Mail, keine Rechnung). Connect legt die Rechnung dann ohne Kunden-ID an und vermerkt es im Protokoll.',
+            ];
         }
         if (($legacy['stock']['back_enabled'] ?? 'inaktiv') === 'aktiv') {
             if (!self::legacyBackApplies($legacy['stock'])) {
