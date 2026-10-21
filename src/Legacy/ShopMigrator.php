@@ -205,9 +205,31 @@ final class ShopMigrator
         }
         if (($legacy['stock']['back_enabled'] ?? 'inaktiv') === 'aktiv') {
             if (!self::legacyBackApplies($legacy['stock'])) {
-                // Andere Richtung (Kasse -> Shopify): der alte Job bucht dort Shopify-Bestellungen im Kassensystem ab
-                $rows[] = ['area' => 'Lagerbestand', 'label' => 'Rückbuchung (Richtung Kasse → Shopify)', 'legacy' => 'an', 'connect' => '–', 'status' => self::STATUS_UNSUPPORTED, 'note' => 'Dieser Teil von cron_sync_stock_back (Shopify-Bestellung → Kassenbestand) ist in Connect nicht gebaut – dieser Shop kann noch nicht umziehen.'];
+                // Richtung Kasse -> Shopify ("Kasse fuehrt"): der alte Job (cron_sync_stock_back, Zweig "else") laeuft nur,
+                // wenn die Rechnungserstellung NICHT aktiv ist, und bucht dann je bezahlter Shopify-Bestellung den Bestand
+                // im Kassensystem ab (change-stock). Ist die Rechnung aktiv, bucht die Rechnung ab -- der Job tut nichts.
+                if (self::legacyBackBooksStockOnOrders($legacy)) {
+                    $alreadyAdjust = (int) ($connect['invoice_creation_enabled'] ?? 0) === 1 && (int) ($connect['invoice_suppress_and_adjust_stock'] ?? 0) === 1;
+                    $rows[] = [
+                        'area' => 'Lagerbestand',
+                        'label' => 'Bestand je Shopify-Bestellung in der Kasse abbuchen',
+                        'legacy' => 'an (Rückbuchungs-Job)',
+                        'connect' => $alreadyAdjust ? 'Modus „Keine Rechnung, nur Bestand abbuchen“' : 'aus',
+                        'status' => $alreadyAdjust ? self::STATUS_SAME : self::STATUS_CHANGE,
+                        'note' => 'In Connect über den Modus „Keine Rechnung erstellen, nur den Bestand abbuchen“ der Rechnungs-Einstellung (gleiches Verhalten wie der alte Job). Wird beim Übernehmen eingeschaltet.',
+                    ];
+                } else {
+                    $rows[] = [
+                        'area' => 'Lagerbestand',
+                        'label' => 'Rückbuchung (Richtung Kasse → Shopify)',
+                        'legacy' => 'an',
+                        'connect' => 'nicht nötig',
+                        'status' => self::STATUS_SAME,
+                        'note' => 'Die alte Welt tut hier nichts, solange die Rechnungserstellung aktiv ist – die Rechnung bucht den Bestand ab, in Connect ebenso.',
+                    ];
+                }
             } elseif (!$this->hasColumn('stock_back_enabled')) {
+
                 $rows[] = ['area' => 'Lagerbestand', 'label' => 'Rückbuchung bei Kassenverkauf', 'legacy' => 'an', 'connect' => '–', 'status' => self::STATUS_MANUAL, 'note' => 'Braucht Migration 0104 (php connect/bin/install.php), danach wird der Wert übernommen.'];
             } elseif (!$this->invoiceReadObjectExists()) {
                 $rows[] = ['area' => 'Lagerbestand', 'label' => 'Kassenrechnungen lesen (Connector Builder)', 'legacy' => 'nötig', 'connect' => 'fehlt', 'status' => self::STATUS_MANUAL, 'note' => 'Im Connector Builder (helloCash) das Object „' . \Connect\Sync\StockBackRunner::INVOICE_OBJECT . '“ mit read_list und read_one für GET /invoices anlegen – sonst pausiert die Rückbuchung (siehe HANDOFF.md).'];
@@ -564,6 +586,14 @@ final class ShopMigrator
             }
         }
 
+        // "Kasse fuehrt" mit Rueckbuchungs-Job ohne aktive Rechnung: der alte Job bucht den Bestand je Shopify-Bestellung ab.
+        // In Connect ist das der Modus "Keine Rechnung erstellen, nur Bestand abbuchen" (Rechnungs-Aktivierung).
+        if (self::legacyBackBooksStockOnOrders($legacy)) {
+            $values['invoice_creation_enabled'] = 1;
+            $values['invoice_suppress_and_adjust_stock'] = 1;
+            $values['invoice_pos_only'] = 0;
+        }
+
         return $values;
     }
 
@@ -726,6 +756,22 @@ final class ShopMigrator
     }
 
     /** Spalte in connect_shops vorhanden? (neuere Migrationen, z.B. 0079 notify_email) */
+    /**
+     * Bucht der alte Rueckbuchungs-Job den Kassenbestand je Shopify-Bestellung ab? Nur bei Richtung
+     * Kasse -> Shopify, aktivem Rueckbuchen UND nicht aktiver Rechnungserstellung (cron_sync_stock_back.php).
+     *
+     * @param array<string, mixed> $legacy
+     */
+    private static function legacyBackBooksStockOnOrders(array $legacy): bool
+    {
+        $stock = $legacy['stock'] ?? null;
+
+        return is_array($stock)
+            && ($stock['back_enabled'] ?? 'inaktiv') === 'aktiv'
+            && !self::legacyBackApplies($stock)
+            && ($legacy['invoice']['enabled'] ?? '') !== 'aktiv';
+    }
+
     /** Gilt der Rueckbuchungs-Job der alten Welt fuer diesen Shop (Richtung Shopify -> Kasse)? */
     private static function legacyBackApplies(array $stock): bool
     {
