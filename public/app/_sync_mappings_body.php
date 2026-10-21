@@ -489,27 +489,63 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'conne
     $flashType = !$targetResult['ok'] ? 'danger' : ($targetResult['connected'] ? 'success' : 'info');
 }
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_invoice_settings' && isset($_POST['refresh_payment_methods'])) {
-    // Knopf "Liste aktualisieren" bei der Zahlungsart: Zahlungsarten sofort frisch aus dem Zielsystem
-    // laden (statt auf den naechsten Lauf der Sync-Job-Vorlage zu warten), speichert nichts.
-    try {
-        $pmTargetId = (int) ($pdo->query('SELECT target_connection_id FROM connect_shops WHERE shop = ' . $pdo->quote($shop))->fetchColumn() ?: 0);
-        $pmObjectStmt = $pdo->prepare(
-            "SELECT o.id FROM connect_objects o JOIN connect_connections c ON c.connector_type_id = o.connector_type_id
-             WHERE c.id = :conn AND o.object_key = 'payment_method' LIMIT 1"
-        );
-        $pmObjectStmt->execute(['conn' => $pmTargetId]);
-        $pmObjectId = (int) $pmObjectStmt->fetchColumn();
-        if ($pmTargetId === 0 || $pmObjectId === 0) {
-            throw new \RuntimeException('Die Zahlungsarten sind für dieses System nicht eingerichtet.');
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'refresh_master_data') {
+    // Knopf "Daten aktualisieren": Auswahllisten (Shopify-Standorte, Mitarbeiter und Zahlungsarten
+    // der Kasse) sofort frisch laden, statt auf den naechsten Lauf der Sync-Job-Vorlage (taeglich)
+    // zu warten. Schreibt nichts ins Zielsystem. Fehlt ein Object (nicht eingerichtet), wird es
+    // uebersprungen.
+    $refreshTargets = [];
+    $refreshStmt = $pdo->prepare(
+        'SELECT s.target_connection_id, (SELECT c.id FROM connect_connections c JOIN connect_connector_types t ON t.id = c.connector_type_id
+                WHERE c.shop = s.shop AND t.type_key = \'shopify\' LIMIT 1) AS shopify_connection_id
+         FROM connect_shops s WHERE s.shop = :shop'
+    );
+    $refreshStmt->execute(['shop' => $shop]);
+    $refreshRow = $refreshStmt->fetch();
+    if ($refreshRow !== false) {
+        if ($refreshRow['shopify_connection_id'] !== null) {
+            $refreshTargets[] = [(int) $refreshRow['shopify_connection_id'], 'location', 'Standorte'];
         }
-        $pmFactory = $buildFactory();
-        $pmCount = (new \Connect\Sync\ObjectCache($pdo))->refresh($pmFactory->forConnection($pmTargetId), $pmTargetId, $pmFactory->objectDefinitionById($pmObjectId), [], null)['processed'];
-        $flashMessage = 'Zahlungsarten aktualisiert (' . $pmCount . ' gefunden).';
-        $flashType = 'success';
-    } catch (\Throwable $e) {
-        $flashMessage = 'Zahlungsarten konnten nicht geladen werden: ' . $e->getMessage();
+        if ($refreshRow['target_connection_id'] !== null) {
+            $refreshTargets[] = [(int) $refreshRow['target_connection_id'], 'employee', 'Mitarbeiter'];
+            $refreshTargets[] = [(int) $refreshRow['target_connection_id'], 'payment_method', 'Zahlungsarten'];
+        }
+    }
+
+    $refreshOk = [];
+    $refreshFailed = [];
+    $refreshObjectStmt = $pdo->prepare(
+        'SELECT o.id FROM connect_objects o JOIN connect_connections c ON c.connector_type_id = o.connector_type_id
+         WHERE c.id = :conn AND o.object_key = :key LIMIT 1'
+    );
+    @set_time_limit(120);
+    foreach ($refreshTargets as [$refreshConnId, $refreshKey, $refreshLabel]) {
+        $refreshObjectStmt->execute(['conn' => $refreshConnId, 'key' => $refreshKey]);
+        $refreshObjectId = (int) $refreshObjectStmt->fetchColumn();
+        if ($refreshObjectId === 0) {
+            continue;
+        }
+        try {
+            $refreshFactory = $buildFactory();
+            $refreshCount = (new \Connect\Sync\ObjectCache($pdo))->refresh(
+                $refreshFactory->forConnection($refreshConnId),
+                $refreshConnId,
+                $refreshFactory->objectDefinitionById($refreshObjectId),
+                [],
+                null
+            )['processed'];
+            $refreshOk[] = $refreshLabel . ' (' . $refreshCount . ')';
+        } catch (\Throwable $e) {
+            $refreshFailed[] = $refreshLabel . ': ' . $e->getMessage();
+        }
+    }
+
+    if ($refreshFailed !== []) {
+        $flashMessage = 'Nicht alles konnte aktualisiert werden: ' . implode(' | ', $refreshFailed) . ($refreshOk !== [] ? '. Aktualisiert: ' . implode(', ', $refreshOk) . '.' : '');
         $flashType = 'danger';
+    } else {
+        $flashMessage = $refreshOk !== [] ? 'Aktualisiert: ' . implode(', ', $refreshOk) . '.' : 'Es gab keine Auswahllisten zu aktualisieren.';
+        $flashType = 'success';
     }
 } elseif ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_invoice_settings' && isset($_POST['test_smtp'])) {
     // Verbindungstest (eigener Button bei den SMTP-Feldern): prueft nur Login,
@@ -1634,8 +1670,13 @@ require __DIR__ . '/_header.php';
         <?php endif; ?>
 
         <div class="col-12">
-            <div class="text-secondary small">
-                Was wann im Hintergrund läuft, siehst du unter <a href="status.php?shop=<?php echo urlencode($shop); ?><?php echo isset($_GET['preview']) ? '&amp;preview=1' : ''; ?>">Status</a>.
+            <div class="text-secondary small d-flex align-items-center gap-3 flex-wrap">
+                <span>Was wann im Hintergrund läuft, siehst du unter <a href="status.php?shop=<?php echo urlencode($shop); ?><?php echo isset($_GET['preview']) ? '&amp;preview=1' : ''; ?>">Status</a>.</span>
+                <form method="post" class="m-0">
+                    <input type="hidden" name="action" value="refresh_master_data">
+                    <button type="submit" class="btn btn-sm btn-outline-secondary" title="Lädt Standorte, Mitarbeiter und Zahlungsarten sofort neu. Sonst passiert das einmal am Tag.">Daten aktualisieren</button>
+                </form>
+                <span>Standorte, Mitarbeiter und Zahlungsarten werden sonst einmal am Tag neu geladen – hast du gerade etwas in <?php echo htmlspecialchars((string) $targetName); ?> ergänzt, hier sofort aktualisieren.</span>
             </div>
         </div>
 
