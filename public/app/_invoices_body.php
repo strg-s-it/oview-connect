@@ -95,6 +95,32 @@ if ($shopSettings !== false && $shopSettings['target_connection_id'] !== null) {
 }
 $flashMessage = null;
 $flashType = 'info';
+
+// -----------------------------------------------------------------------
+// Fehlgeschlagene Rechnung erneut versuchen (Connect\Sync\InvoiceRetryService). CSRF prueft
+// bootstrap.php / admin_bootstrap.php; welche Bestellungen erlaubt sind, entscheidet der Service
+// anhand des Dedup-Protokolls (nur 'error' dieses Shops), nicht anhand des POST.
+// -----------------------------------------------------------------------
+$retryService = new \Connect\Sync\InvoiceRetryService($pdo, new \Connect\Connector\ConnectorFactory(
+    $pdo,
+    $app->crypto,
+    new \Connect\Http\HttpClient(),
+    \Connect\Shopify\TokenRefresher::fromConfig($app->config)
+));
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && ($_POST['action'] ?? '') === 'retry_invoice') {
+    @set_time_limit(120);
+    $retryResult = $retryService->retry($shop, trim((string) ($_POST['source_id'] ?? '')));
+    $flashMessage = $retryResult['ok']
+        ? 'Rechnung angelegt: ' . $retryResult['message']
+        : 'Rechnung konnte nicht angelegt werden: ' . $retryResult['message'];
+    $flashType = $retryResult['ok'] ? 'success' : 'danger';
+}
+try {
+    $failedInvoices = $retryService->failedForShop($shop);
+} catch (\Throwable $e) {
+    $failedInvoices = [];
+}
+
 if (isset($_GET['pdf']) && $pdfAvailable) {
     $pdfId = trim((string) $_GET['pdf']);
     $ownStmt = $pdo->prepare(
@@ -277,6 +303,40 @@ require __DIR__ . '/_header.php';
             </div>
         </div>
     </div>
+
+    <?php if (count($failedInvoices) > 0): ?>
+    <div class="col-12" id="failed">
+        <div class="card border-warning">
+            <div class="card-header">
+                <h3 class="card-title mb-0">Nicht angelegte Rechnungen (<?php echo count($failedInvoices); ?>)</h3>
+            </div>
+            <div class="card-body text-secondary pb-0">
+                Für diese Bestellungen konnte keine Rechnung erstellt werden. Behebe zuerst die Ursache (siehe Meldung), dann kannst du die Rechnung hier nachträglich anlegen lassen. Bestellungen, für die schon eine Rechnung existiert, werden nie doppelt angelegt.
+            </div>
+            <div class="table-responsive">
+                <table class="table table-vcenter card-table">
+                    <thead><tr><th>Bestellung</th><th>Fehlgeschlagen am</th><th>Meldung</th><th></th></tr></thead>
+                    <tbody>
+                        <?php foreach ($failedInvoices as $failed): ?>
+                            <tr>
+                                <td class="text-nowrap"><strong><?php echo htmlspecialchars($failed['order']); ?></strong></td>
+                                <td class="text-secondary text-nowrap"><?php echo htmlspecialchars($failed['at']); ?></td>
+                                <td><?php echo htmlspecialchars(mb_substr($failed['message'], 0, 300)); ?></td>
+                                <td class="text-end">
+                                    <form method="post" onsubmit="return confirm('Rechnung für <?php echo htmlspecialchars($failed['order'], ENT_QUOTES); ?> jetzt in <?php echo htmlspecialchars((string) ($shopSettings['target_type_name'] ?? 'dem Kassensystem'), ENT_QUOTES); ?> anlegen?');">
+                                        <input type="hidden" name="action" value="retry_invoice">
+                                        <input type="hidden" name="source_id" value="<?php echo htmlspecialchars($failed['source_id']); ?>">
+                                        <button type="submit" class="btn btn-sm btn-primary">Erneut versuchen</button>
+                                    </form>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    <?php endif; ?>
 
     <div class="col-12">
         <div class="card">
