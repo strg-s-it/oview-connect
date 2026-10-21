@@ -80,6 +80,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'toggl
     $flashType = 'success';
 }
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'activate_all') {
+    $templateId = (int) ($_POST['template_id'] ?? 0);
+    $activated = \Connect\Sync\JobTemplateActivator::activateForAllShops($pdo, $templateId);
+    $flashMessage = $activated > 0
+        ? "Bei {$activated} Shop(s) aktiviert. Die ersten Läufe plant der Scheduler in den nächsten Minuten ein."
+        : 'Alle Shops haben diesen Job schon.';
+    $flashType = 'success';
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delete_template') {
     $templateId = (int) ($_POST['template_id'] ?? 0);
     $pdo->prepare('DELETE FROM connect_sync_job_templates WHERE id = :id')->execute(['id' => $templateId]);
@@ -142,6 +151,7 @@ require dirname(__DIR__) . '/app/_header.php';
                                 <th>Standard-Intervall</th>
                                 <th>Automatisch aktivieren</th>
                                 <th>Aktivierungen</th>
+                                <th>Fehlt bei</th>
                                 <th class="w-1"></th>
                             </tr>
                         </thead>
@@ -162,6 +172,18 @@ require dirname(__DIR__) . '/app/_header.php';
                                         </form>
                                     </td>
                                     <td><?php echo (int) $template['activation_count']; ?></td>
+                                    <td>
+                                        <?php $missingShops = \Connect\Sync\JobTemplateActivator::missingCount($pdo, (int) $template['id']); ?>
+                                        <?php if ($missingShops === 0): ?>
+                                            <span class="text-secondary">–</span>
+                                        <?php else: ?>
+                                            <form method="post" class="d-inline" onsubmit="return confirm('Job \'<?php echo htmlspecialchars(addslashes($template['name'])); ?>\' jetzt bei <?php echo $missingShops; ?> Shop(s) aktivieren?');">
+                                                <input type="hidden" name="action" value="activate_all">
+                                                <input type="hidden" name="template_id" value="<?php echo (int) $template['id']; ?>">
+                                                <button type="submit" class="btn btn-sm btn-outline-primary"><?php echo $missingShops; ?> Shop(s) – jetzt aktivieren</button>
+                                            </form>
+                                        <?php endif; ?>
+                                    </td>
                                     <td class="text-end">
                                         <form method="post" onsubmit="return confirm('Job-Vorlage \'<?php echo htmlspecialchars(addslashes($template['name'])); ?>\' wirklich löschen? Bestehende Aktivierungen bei Shops bleiben als eigenständige Jobs erhalten, verlieren aber den Bezug zur Vorlage.');">
                                             <input type="hidden" name="action" value="delete_template">
