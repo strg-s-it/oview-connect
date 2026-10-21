@@ -97,6 +97,18 @@ function enqueueDueMappings(PDO $pdo): void
             $due = (bool) $dueCheckStmt->fetchColumn();
         }
 
+        // Detail-Nachladen (z.B. helloCash-Bestaende, je Lauf nur ein Teil) noch nicht komplett:
+        // sofort den naechsten Teil laden statt ein ganzes Intervall zu warten -- sonst sind die
+        // Bestaende nach einem Umzug/neuen Shop erst nach Stunden da. cursor_state ist nur dort
+        // gesetzt und wird bei Abschluss null. Nur nach einem erfolgreichen Lauf ('done'), damit
+        // ein dauerhaft fehlschlagender Job nicht jede Minute wiederholt wird.
+        if (!$due) {
+            $lastJobStmt = $pdo->prepare('SELECT status, cursor_state FROM connect_sync_jobs WHERE sync_mapping_id = :id ORDER BY id DESC LIMIT 1');
+            $lastJobStmt->execute(['id' => $mappingId]);
+            $lastJob = $lastJobStmt->fetch();
+            $due = $lastJob !== false && $lastJob['status'] === 'done' && $lastJob['cursor_state'] !== null;
+        }
+
         if ($due) {
             // cursor_state der letzten Job-Zeile dieses Mappings uebernehmen
             // (siehe ObjectCache::hydrateDetails() / SyncRunner::run()) --

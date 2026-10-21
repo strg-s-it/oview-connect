@@ -401,6 +401,13 @@ final class ShopMigrator
             $notes[] = 'Abo konnte nicht abgefragt werden (' . $e->getMessage() . ') – wird beim nächsten Öffnen der Übersicht nachgeholt.';
         }
 
+        // 5. Daten-Jobs (Produkte, Artikel, Standorte, Mitarbeiter, Zahlungsarten ...) sofort einplanen, damit die
+        // Zwischenspeicher gleich gefuellt werden und der Vergleich nicht erst nach einem Intervall stimmt. Nur Lesen.
+        $scheduledJobs = \Connect\Sync\JobScheduler::dataJobsNowQuietly($this->pdo, $shop);
+        if ($scheduledJobs > 0) {
+            $notes[] = "{$scheduledJobs} Daten-Job(s) für sofort eingeplant (Produkte, Standorte, Mitarbeiter …).";
+        }
+
         return $notes;
     }
 
