@@ -469,14 +469,14 @@ final class SyncRunner
             // hier bricht nichts ab; dann scheitert die Rechnung wie bisher mit klarer Meldung.
             if (($mapping['mapping_kind'] ?? 'default') === 'invoice' && !$this->invoiceSuppressedForShop($mapping)) {
                 $ensured = (new PaymentMethodEnsurer($this->pdo, $this->connectorFactory))->ensureForShop((string) $mapping['shop']);
-                if ($ensured['message'] !== '' && $ensured['status'] !== 'unavailable') {
-                    $this->log($ensured['message']);
+                if ($ensured['message'] !== '') {
+                    $this->log('Zahlungsart: ' . $ensured['message']);
                 }
 
                 // Dasselbe fuer die Steuersaetze der Bestellung (z. B. 19 % bei einem oesterreichischen Konto)
                 $taxEnsured = (new TaxRateEnsurer($this->pdo, $this->connectorFactory))->ensureForOrder((string) $mapping['shop'], $sourceRow);
-                if ($taxEnsured['message'] !== '' && $taxEnsured['status'] !== 'unavailable') {
-                    $this->log($taxEnsured['message']);
+                if ($taxEnsured['message'] !== '') {
+                    $this->log('Steuersatz-Prüfung: ' . $taxEnsured['message']);
                 }
             }
 
