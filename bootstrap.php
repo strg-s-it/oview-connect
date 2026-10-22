@@ -37,7 +37,10 @@ $crypto = new Crypto($config->require('CONNECT_ENCRYPTION_KEY'));
 // Eigener Session-Name, getrennt von der Admin-Session (AdminAuth nutzt
 // "connect_admin"): beide Vertrauensmodelle (Shopify-Signatur hier, Passwort-
 // Login dort) teilten sich sonst dasselbe Cookie auf derselben Domain.
-session_name('connect_app');
+// Name bewusst neu (vorher "connect_app"): Reste des alten Cookies -- auch eine kurzzeitig ausgelieferte
+// partitionierte Variante -- erzeugten zwei gleichnamige Cookies, PHP las das falsche, und jedes Absenden
+// endete mit 403. Unter neuem Namen werden sie ignoriert; Merchants melden sich wie immer ueber den Link an.
+session_name('connect_sess');
 ini_set('session.use_strict_mode', '1'); // unbekannte Session-IDs ablehnen statt uebernehmen (Fixation)
 ini_set('session.use_only_cookies', '1');
 session_set_cookie_params([
@@ -82,7 +85,7 @@ $authLog = static function (string $reason) use (&$sig, &$sigValid, &$expires, $
         . ' script=' . basename((string) ($_SERVER['SCRIPT_NAME'] ?? ''))
         . ' method=' . (string) ($_SERVER['REQUEST_METHOD'] ?? '')
         . ' sig=' . ($sig === null ? 'nein' : ($sigValid ? 'gueltig' : ($expires < time() ? 'abgelaufen' : 'ungueltig')))
-        . ' cookie_connect_app=' . substr_count($rawCookies, 'connect_app=')
+        . ' cookie_session=' . substr_count($rawCookies, session_name() . '=')
         . ' session_shop=' . (isset($_SESSION['connect_shop']) ? ((string) $_SESSION['connect_shop'] === $shop ? 'passt' : 'anderer') : 'leer')
         . ' dest=' . (string) ($_SERVER['HTTP_SEC_FETCH_DEST'] ?? '-')
         . ' site=' . (string) ($_SERVER['HTTP_SEC_FETCH_SITE'] ?? '-'));

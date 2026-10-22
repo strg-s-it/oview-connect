@@ -261,7 +261,7 @@ final class AdminAuth
     {
         if (session_status() !== PHP_SESSION_ACTIVE) {
             // Eigener Session-Name, getrennt von der Merchant-Session
-            // (bootstrap.php nutzt "connect_app"). Der Admin-Bereich laeuft nie
+            // (bootstrap.php nutzt "connect_sess"). Der Admin-Bereich laeuft nie
             // im Shopify-iframe -- deshalb kein SameSite=None wie dort, sondern Lax.
             session_name('connect_admin');
             ini_set('session.use_strict_mode', '1');
