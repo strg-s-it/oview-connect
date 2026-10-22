@@ -46,33 +46,7 @@ session_set_cookie_params([
     'httponly' => true,
     'path' => '/',
 ]);
-// Im Shopify-iframe ist das Session-Cookie ein Drittanbieter-Cookie: Edge/Chrome (Tracking-Schutz) und andere
-// Browser lassen es sonst nicht zu, jede Folgeseite ohne Zugangslink (sig) endet dann mit 401 "Nicht angemeldet".
-// "Partitioned" (CHIPS) erlaubt es pro einbettender Seite. PHP 8.3 kennt das Attribut in
-// session_set_cookie_params() nicht, deshalb wird der Set-Cookie-Header nachtraeglich ergaenzt. Browser, die
-// das Attribut nicht kennen, ignorieren es.
-$partitionSessionCookie = static function (): void {
-    $prefix = session_name() . '=';
-    $cookies = [];
-    foreach (headers_list() as $header) {
-        if (stripos($header, 'Set-Cookie:') === 0) {
-            $cookies[] = trim(substr($header, strlen('Set-Cookie:')));
-        }
-    }
-    if ($cookies === []) {
-        return;
-    }
-    header_remove('Set-Cookie');
-    foreach ($cookies as $cookie) {
-        if (str_starts_with($cookie, $prefix) && stripos($cookie, 'partitioned') === false) {
-            $cookie .= '; Partitioned';
-        }
-        header('Set-Cookie: ' . $cookie, false);
-    }
-};
-
 session_start();
-$partitionSessionCookie();
 
 $shop = $_GET['shop'] ?? null;
 if (!is_string($shop) || $shop === '') {
@@ -84,6 +58,7 @@ if (!is_string($shop) || $shop === '') {
 }
 
 $sig = $_GET['sig'] ?? null;
+$sigValid = false;
 if ($sig !== null) {
     $expires = (int) ($_GET['expires'] ?? 0);
     $appSecret = $config->require('CONNECT_SHOPIFY_API_SECRET');
@@ -93,22 +68,26 @@ if ($sig !== null) {
     $handoffKey = hash_hmac('sha256', 'oview-connect-handoff-v1', $appSecret);
     $expected = hash_hmac('sha256', $shop . '|' . $expires, $handoffKey);
 
-    if ($expires < time()
-        || preg_match('/^[a-z0-9][a-z0-9-]*$/', $shop) !== 1
-        || !hash_equals($expected, (string) $sig)
-    ) {
+    $sigValid = $expires >= time()
+        && preg_match('/^[a-z0-9][a-z0-9-]*$/', $shop) === 1
+        && hash_equals($expected, (string) $sig);
+}
+
+if ($sigValid) {
+    session_regenerate_id(true); // neue Session-ID bei frisch verifiziertem Handoff -- schuetzt vor Session-Fixation
+    $_SESSION['connect_shop'] = $shop;
+    $_SESSION['connect_host'] = (string) ($_GET['host'] ?? '');
+} elseif (($_SESSION['connect_shop'] ?? null) !== $shop) {
+    // Ein abgelaufener Zugangslink in der URL ist unschaedlich, solange die Session des Shops noch gilt
+    // (die Einrichtungsseiten tragen den Link in der URL, das Formular schickt dorthin -- nach 5 Minuten
+    // waere sonst jede Eingabe ein 401). Nur ohne passende Session gilt der Link als Grund.
+    if ($sig !== null) {
         \Connect\Http\ErrorPage::show(
             401,
             'Zugangslink abgelaufen',
             'Der Link ist ungültig oder nicht mehr gültig. Bitte öffne die App erneut über Shopify.'
         );
     }
-
-    session_regenerate_id(true); // neue Session-ID bei frisch verifiziertem Handoff -- schuetzt vor Session-Fixation
-    $partitionSessionCookie();
-    $_SESSION['connect_shop'] = $shop;
-    $_SESSION['connect_host'] = (string) ($_GET['host'] ?? '');
-} elseif (($_SESSION['connect_shop'] ?? null) !== $shop) {
     \Connect\Http\ErrorPage::show(
         401,
         'Nicht angemeldet',
@@ -155,7 +134,7 @@ if (basename(dirname($scriptPath)) === 'app' && basename($scriptPath) !== 'welco
     // wenn das Session-Cookie der Weiterleitung nicht ankommt. Verwendet wird er nur, wenn er
     // gerade frisch verifiziert wurde (sonst ist $sig null und es gilt die Session).
     $gateUrl = 'welcome.php?shop=' . urlencode($shop);
-    if ($sig !== null) {
+    if ($sigValid) {
         $gateUrl .= '&host=' . urlencode((string) ($_GET['host'] ?? ''))
             . '&expires=' . $expires
             . '&sig=' . urlencode((string) $sig);
