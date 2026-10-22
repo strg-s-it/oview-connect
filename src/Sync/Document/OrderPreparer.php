@@ -43,8 +43,8 @@ final class OrderPreparer
     /**
      * @param array<string, mixed> $orderRow
      * @param bool $pricesIncludeTax connect_shops.shopify_prices_include_tax (NULL gilt als true)
-     * @param ?callable(string): ?string $articleResolver Vergleichswert der Position -> ID
-     *        des passenden Artikels im Zielsystem (oder null), siehe InvoiceService
+     * @param ?callable(string): ?array{id: string, name: ?string} $articleResolver Vergleichswert der Position -> ID
+     *        und Bezeichnung des passenden Artikels im Zielsystem (oder null), siehe InvoiceService
      * @return array{lines: list<array<string, mixed>>, computed_total_tax: float, notes: list<string>}
      */
     public function prepare(array $orderRow, bool $pricesIncludeTax, ?string $comparisonKey = null, ?callable $articleResolver = null): array
@@ -118,7 +118,14 @@ final class OrderPreparer
             if ($articleResolver !== null && $matchFieldKey !== null) {
                 $matchValue = trim((string) ($lineItem[$matchFieldKey] ?? ''));
                 if ($matchValue !== '') {
-                    $targetArticleId = $articleResolver($matchValue);
+                    $article = $articleResolver($matchValue);
+                    if ($article !== null) {
+                        $targetArticleId = $article['id'];
+                        // Gibt es den Artikel im Kassensystem, gilt dessen Bezeichnung (wie in der alten Welt)
+                        if ($article['name'] !== null) {
+                            $name = $article['name'];
+                        }
+                    }
                 }
             }
 

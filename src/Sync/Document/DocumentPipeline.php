@@ -452,12 +452,20 @@ final class DocumentPipeline
         }
 
         [$targetObject, $matchField, $identifierField] = $articleMatch;
+        $titleField = \Connect\Sync\ProductMatchContext::titleField($targetObject);
         $objectCache = new ObjectCache($this->pdo);
 
-        return static function (string $matchValue) use ($objectCache, $targetConnectionId, $targetObject, $matchField, $identifierField): ?string {
+        return static function (string $matchValue) use ($objectCache, $targetConnectionId, $targetObject, $matchField, $identifierField, $titleField): ?array {
             $cachedArticle = $objectCache->findOneByFieldValue($targetConnectionId, $targetObject->key, $matchField->key, $matchValue);
 
-            return $cachedArticle !== null && isset($cachedArticle[$identifierField->key]) ? (string) $cachedArticle[$identifierField->key] : null;
+            if ($cachedArticle === null || !isset($cachedArticle[$identifierField->key])) {
+                return null;
+            }
+            
+            // Bezeichnung aus dem Kassensystem (z.B. mit Chargennummer) statt der Shopify-Bezeichnung
+            $articleName = $titleField !== null ? trim((string) ($cachedArticle[$titleField->key] ?? '')) : '';
+            
+            return ['id' => (string) $cachedArticle[$identifierField->key], 'name' => $articleName !== '' ? $articleName : null];
         };
     }
 
