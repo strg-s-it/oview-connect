@@ -124,7 +124,16 @@ $scriptPath = (string) ($_SERVER['SCRIPT_NAME'] ?? '');
 if (basename(dirname($scriptPath)) === 'app' && basename($scriptPath) !== 'welcome.php'
     && \Connect\Setup\WelcomeGate::isRequired($db->pdo(), $shop)
 ) {
-    header('Location: welcome.php?shop=' . urlencode($shop));
+    // Zugangslink (sig/expires/host) mitgeben: der Folgeaufruf bleibt so auch dann angemeldet,
+    // wenn das Session-Cookie der Weiterleitung nicht ankommt. Verwendet wird er nur, wenn er
+    // gerade frisch verifiziert wurde (sonst ist $sig null und es gilt die Session).
+    $gateUrl = 'welcome.php?shop=' . urlencode($shop);
+    if ($sig !== null) {
+        $gateUrl .= '&host=' . urlencode((string) ($_GET['host'] ?? ''))
+            . '&expires=' . $expires
+            . '&sig=' . urlencode((string) $sig);
+    }
+    header('Location: ' . $gateUrl);
     exit;
 }
 
