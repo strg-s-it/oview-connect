@@ -59,6 +59,7 @@ if (!is_string($shop) || $shop === '') {
 
 $sig = $_GET['sig'] ?? null;
 $sigValid = false;
+$expires = 0;
 if ($sig !== null) {
     $expires = (int) ($_GET['expires'] ?? 0);
     $appSecret = $config->require('CONNECT_SHOPIFY_API_SECRET');
@@ -73,6 +74,20 @@ if ($sig !== null) {
         && hash_equals($expected, (string) $sig);
 }
 
+// Diagnose fuer Anmelde-Ablehnungen (401/403): eine Zeile im PHP-Error-Log, ohne Token/Signatur-Werte.
+// Zeigt, ob das Session-Cookie ankam (und wie oft), ob ein Zugangslink in der URL stand und ob er galt.
+$authLog = static function (string $reason) use (&$sig, &$sigValid, &$expires, $shop): void {
+    $rawCookies = (string) ($_SERVER['HTTP_COOKIE'] ?? '');
+    @error_log('connect auth: ' . $reason . ' shop=' . $shop
+        . ' script=' . basename((string) ($_SERVER['SCRIPT_NAME'] ?? ''))
+        . ' method=' . (string) ($_SERVER['REQUEST_METHOD'] ?? '')
+        . ' sig=' . ($sig === null ? 'nein' : ($sigValid ? 'gueltig' : ($expires < time() ? 'abgelaufen' : 'ungueltig')))
+        . ' cookie_connect_app=' . substr_count($rawCookies, 'connect_app=')
+        . ' session_shop=' . (isset($_SESSION['connect_shop']) ? ((string) $_SESSION['connect_shop'] === $shop ? 'passt' : 'anderer') : 'leer')
+        . ' dest=' . (string) ($_SERVER['HTTP_SEC_FETCH_DEST'] ?? '-')
+        . ' site=' . (string) ($_SERVER['HTTP_SEC_FETCH_SITE'] ?? '-'));
+};
+
 if ($sigValid) {
     session_regenerate_id(true); // neue Session-ID bei frisch verifiziertem Handoff -- schuetzt vor Session-Fixation
     $_SESSION['connect_shop'] = $shop;
@@ -81,6 +96,7 @@ if ($sigValid) {
     // Ein abgelaufener Zugangslink in der URL ist unschaedlich, solange die Session des Shops noch gilt
     // (die Einrichtungsseiten tragen den Link in der URL, das Formular schickt dorthin -- nach 5 Minuten
     // waere sonst jede Eingabe ein 401). Nur ohne passende Session gilt der Link als Grund.
+    $authLog($sig !== null ? '401 link-abgelaufen-ohne-session' : '401 nicht-angemeldet');
     if ($sig !== null) {
         \Connect\Http\ErrorPage::show(
             401,
@@ -104,6 +120,7 @@ $_SESSION['connect_csrf'] ??= bin2hex(random_bytes(32));
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
     $csrfSent = $_POST['_csrf'] ?? ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? '');
     if (!is_string($csrfSent) || $csrfSent === '' || !hash_equals((string) $_SESSION['connect_csrf'], $csrfSent)) {
+        $authLog('403 csrf ' . (is_string($csrfSent) && $csrfSent !== '' ? 'token-passt-nicht' : 'token-fehlt'));
         \Connect\Http\ErrorPage::show(
             403,
             'Anfrage abgelehnt',
