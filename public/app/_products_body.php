@@ -229,8 +229,8 @@ $statusBadgeClass = [
     'no_comparison_value_target' => 'bg-red-lt',
     'duplicate_shopify' => 'bg-red-lt',
     'duplicate_target' => 'bg-red-lt',
-    'missing_on_shopify' => 'bg-orange-lt',
-    'missing_on_target' => 'bg-orange-lt',
+    'missing_on_shopify' => 'bg-blue-lt',
+    'missing_on_target' => 'bg-blue-lt',
     'diff' => 'bg-yellow-lt',
     'unknown' => 'bg-secondary-lt',
     'in_sync' => 'bg-green-lt',
@@ -370,17 +370,17 @@ require __DIR__ . '/_header.php';
     <?php else: ?>
         <?php if (!empty($report['location_missing'])): ?>
             <div class="col-12">
-                <div class="alert alert-warning">
-                    Es ist kein Shopify-Standort gewählt – der Lagerabgleich ist pausiert, und die Shopify-Bestände sind unbekannt.
+                <div class="alert alert-danger mb-0">
+                    <strong>Kein Shopify-Standort gewählt.</strong> Der Lagerabgleich ist pausiert, die Shopify-Bestände sind unbekannt.
                     Bitte unter Einstellungen → Lagerbestand den Standort wählen.
                 </div>
             </div>
         <?php endif; ?>
         <?php if ((int) ($report['hidden_by_location'] ?? 0) > 0): ?>
             <div class="col-12">
-                <div class="alert alert-warning">
-                    <?php echo (int) $report['hidden_by_location']; ?> Shopify-Produkte werden hier nicht angezeigt, weil sie am gewählten Standort nicht geführt werden.
-                    Prüfe unter Einstellungen → Lagerbestand, ob der richtige Shopify-Standort gewählt ist. Nach einer Änderung dauert es bis zum nächsten Abruf der Shopify-Produkte, bis die Liste stimmt.
+                <div class="alert alert-info mb-0 py-2">
+                    <strong><?php echo (int) $report['hidden_by_location']; ?> Shopify-Produkte</strong> werden nicht angezeigt, weil sie am gewählten Standort nicht geführt werden.
+                    <span class="text-secondary">Standort prüfen unter Einstellungen → Lagerbestand; nach einer Änderung stimmt die Liste erst nach dem nächsten Abruf der Shopify-Produkte.</span>
                 </div>
             </div>
         <?php endif; ?>
@@ -502,13 +502,15 @@ require __DIR__ . '/_header.php';
 
         <?php if ($openProblems !== []): ?>
             <div class="col-12">
-                <div class="alert alert-warning mb-0">
-                    <div class="fw-bold mb-1"><?php echo \Connect\Ui\Icon::svg('alert-triangle', 16, 'me-1'); ?>Diese Produkte können nicht abgeglichen werden</div>
-                    <div class="small mb-2">Artikel mit fehlendem (leerem) oder mehrfach vorkommendem Vergleichswert werden nicht synchronisiert.</div>
-                    <div class="d-flex flex-wrap gap-2">
-                        <?php foreach ($openProblems as $problemKey => $problemLabel): ?>
-                            <a href="<?php echo $e($urlFor(['filter' => $problemKey, 'q' => '', 'page' => 1])); ?>" class="btn btn-sm btn-outline-warning"><?php echo $e($problemLabel); ?> <span class="badge bg-orange-lt ms-1"><?php echo (int) $totalCounts[$problemKey]; ?></span></a>
-                        <?php endforeach; ?>
+                <div class="card">
+                    <div class="card-body py-3">
+                        <div class="d-flex flex-wrap align-items-center gap-2">
+                            <span class="fw-bold me-2"><?php echo \Connect\Ui\Icon::svg('alert-triangle', 16, 'me-1 text-secondary'); ?>Nicht abgleichbar</span>
+                            <?php foreach ($openProblems as $problemKey => $problemLabel): ?>
+                                <a href="<?php echo $e($urlFor(['filter' => $problemKey, 'q' => '', 'page' => 1])); ?>" class="btn btn-sm <?php echo $filter === $problemKey ? 'btn-dark' : 'btn-outline-secondary'; ?>"><?php echo $e($problemLabel); ?> <span class="badge bg-red-lt ms-1"><?php echo (int) $totalCounts[$problemKey]; ?></span></a>
+                            <?php endforeach; ?>
+                        </div>
+                        <div class="small text-secondary mt-2">Artikel mit fehlendem oder mehrfach vorkommendem Vergleichswert werden nicht synchronisiert. Die Werte bitte in der jeweiligen Software korrigieren.</div>
                     </div>
                 </div>
             </div>
@@ -532,15 +534,15 @@ require __DIR__ . '/_header.php';
                     <?php if ($searchTerm !== ''): ?>
                         <div class="small text-secondary mb-2"><?php echo (int) $counts['all']; ?> Treffer für „<?php echo $e($searchTerm); ?>“ – die Zahlen an den Filtern gelten für diese Suche.</div>
                     <?php endif; ?>
-                    <div class="btn-group flex-wrap" role="group">
+                    <div class="d-flex flex-wrap gap-2" role="group">
                         <?php foreach ($filterOptions as $key => $label): ?>
                             <?php // Filter ohne Eintraege ausblenden (ausser "Alle", Synchron, Abweichend und dem aktiven) -- sonst ist die Leiste voller Nullen ?>
                             <?php if ($key !== 'all' && $key !== $filter && (int) ($counts[$key] ?? 0) === 0 && !in_array($key, ['in_sync', 'diff'], true)) { continue; } ?>
                             <a href="<?php echo $e($urlFor(['filter' => $key, 'page' => 1])); ?>"
-                                class="btn btn-sm <?php echo $filter === $key ? 'btn-primary' : 'btn-outline-secondary'; ?>">
+                                class="btn btn-sm <?php echo $filter === $key ? 'btn-dark' : 'btn-outline-secondary'; ?>">
                                 <?php echo htmlspecialchars($label); ?>
                                 <?php // auf dem aktiven (blauen) Knopf heller Zaehler, sonst war die Zahl kaum lesbar ?>
-                                <span class="badge ms-1 <?php echo $filter === $key ? 'bg-white text-primary' : 'bg-secondary-lt'; ?>"><?php echo $counts[$key] ?? 0; ?></span>
+                                <span class="badge ms-1 <?php echo $filter === $key ? 'bg-white text-dark' : 'bg-secondary-lt'; ?>"><?php echo $counts[$key] ?? 0; ?></span>
                             </a>
                         <?php endforeach; ?>
                     </div>
@@ -685,7 +687,13 @@ require __DIR__ . '/_header.php';
                                                     <input type="hidden" name="missing_on[<?php echo $i; ?>]" value="<?php echo htmlspecialchars($missingOn); ?>">
                                                 <?php endif; ?>
                                             </td>
-                                            <td><?php echo $editableCell('title', $row['label'] ?? $row['match_value']); ?></td>
+                                            <td>
+                                                <?php echo $editableCell('title', $row['label'] ?? $row['match_value']); ?>
+                                                <?php // Bezeichnung im Zielsystem nur zeigen, wenn sie von der Shopify-Bezeichnung abweicht ?>
+                                                <?php if (($row['target_label'] ?? null) !== null && mb_strtolower(trim((string) $row['target_label'])) !== mb_strtolower(trim((string) ($row['label'] ?? '')))): ?>
+                                                    <div class="small text-secondary" title="Bezeichnung in <?php echo htmlspecialchars($targetName); ?>"><?php echo htmlspecialchars($targetName); ?>: <?php echo htmlspecialchars((string) $row['target_label']); ?></div>
+                                                <?php endif; ?>
+                                            </td>
                                             <td class="text-secondary">
                                                 <?php if ($row['match_value'] !== null && !$canImport): ?>
                                                     <a href="stock_history.php?shop=<?php echo urlencode($shop); ?><?php echo isset($_GET['preview']) ? '&amp;preview=1' : ''; ?>&amp;match=<?php echo urlencode((string) $row['match_value']); ?>" title="Bestandsverlauf ansehen"><?php echo \Connect\Ui\Icon::svg('history', 14, 'me-1'); ?><?php echo htmlspecialchars((string) $row['match_value']); ?></a>
@@ -699,7 +707,7 @@ require __DIR__ . '/_header.php';
                                                 <td>
                                                     <?php echo $editableCell('price', $row['price']); ?>
                                                     <?php if (in_array('price_diff', $row['flags'], true)): ?>
-                                                        <div class="small text-warning text-nowrap" title="Preis in <?php echo htmlspecialchars($targetName); ?>"><?php echo htmlspecialchars($targetName); ?>: <?php echo htmlspecialchars(number_format((float) $row['target_price'], 2, ',', '.')); ?></div>
+                                                        <div class="small text-secondary text-nowrap" title="Preis in <?php echo htmlspecialchars($targetName); ?>"><?php echo htmlspecialchars($targetName); ?>: <?php echo htmlspecialchars(number_format((float) $row['target_price'], 2, ',', '.')); ?></div>
                                                     <?php endif; ?>
                                                 </td>
                                             <?php endif; ?>

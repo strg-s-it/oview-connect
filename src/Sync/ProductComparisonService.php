@@ -30,7 +30,7 @@ final class ProductComparisonService
     ) {}
 
     /**
-     * @return array{status: string, message: ?string, comparisonKey: ?string, rows: list<array{match_value: ?string, label: ?string, shopify_quantity: ?int, target_quantity: ?int, status: string, sku: ?string, barcode: ?string, price: ?string, variant_title: ?string, flags: list<string>, shopify_price: ?string, target_price: ?string}>, problems?: list<array{key: string, label: string, count: int}>, buffer?: int, prices_comparable?: bool, prices_gross?: bool, hidden_by_location?: int, location_missing?: bool}
+     * @return array{status: string, message: ?string, comparisonKey: ?string, rows: list<array{match_value: ?string, label: ?string, shopify_quantity: ?int, target_quantity: ?int, status: string, sku: ?string, barcode: ?string, price: ?string, variant_title: ?string, flags: list<string>, shopify_price: ?string, target_price: ?string, target_label: ?string}>, problems?: list<array{key: string, label: string, count: int}>, buffer?: int, prices_comparable?: bool, prices_gross?: bool, hidden_by_location?: int, location_missing?: bool}
      *         status: skipped | error | success
      */
     public function buildReport(string $shop): array
@@ -264,6 +264,8 @@ final class ProductComparisonService
             }
 
             $extra = $extraFieldsFor($record, $targetRecord);
+            // Bezeichnung im Zielsystem (die Zeile zeigt sonst nur die Shopify-Bezeichnung)
+            $extra['target_label'] = $targetLabel;
             // Preisvergleich auf derselben Basis wie Shopify (Brutto oder Netto, siehe targetPriceField())
             if ($shopifyPriceField !== null && $targetPriceField !== null) {
                 $extra['shopify_price'] = ShopStockRules::price($record[$shopifyPriceField->key] ?? null);
@@ -367,8 +369,8 @@ final class ProductComparisonService
     }
 
     /**
-     * @param array{sku?: ?string, barcode?: ?string, price?: ?string, variant_title?: ?string, flags?: list<string>, shopify_price?: ?string, target_price?: ?string} $extra
-     * @return array{match_value: ?string, label: ?string, shopify_quantity: ?int, target_quantity: ?int, status: string, sku: ?string, barcode: ?string, price: ?string, variant_title: ?string, flags: list<string>, shopify_price: ?string, target_price: ?string}
+     * @param array{sku?: ?string, barcode?: ?string, price?: ?string, variant_title?: ?string, flags?: list<string>, shopify_price?: ?string, target_price?: ?string, target_label?: ?string} $extra
+     * @return array{match_value: ?string, label: ?string, shopify_quantity: ?int, target_quantity: ?int, status: string, sku: ?string, barcode: ?string, price: ?string, variant_title: ?string, flags: list<string>, shopify_price: ?string, target_price: ?string, target_label: ?string}
      */
     private static function row(?string $matchValue, ?string $label, ?int $shopifyQuantity, ?int $targetQuantity, string $status, array $extra = []): array
     {
@@ -385,6 +387,7 @@ final class ProductComparisonService
             'flags' => $extra['flags'] ?? [],
             'shopify_price' => $extra['shopify_price'] ?? null,
             'target_price' => $extra['target_price'] ?? null,
+            'target_label' => $extra['target_label'] ?? null,
         ];
     }
 }
