@@ -113,6 +113,65 @@ final class InvoiceRetryService
     }
 
     /**
+     * Zu angelegten Rechnungen (Kassensystem-ID) die Quell-Bestellung im Dedup-Protokoll finden.
+     *
+     * @param list<string> $targetIds
+     * @return array<string, string> Kassensystem-ID => Shopify-Bestell-ID (nur Status 'success')
+     */
+    public function sourceIdsForTargets(string $shop, array $targetIds): array
+    {
+        $mapping = $this->invoiceMapping($shop);
+        $targetIds = array_values(array_unique(array_filter($targetIds, static fn (string $id): bool => $id !== '')));
+        if ($mapping === null || $targetIds === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($targetIds), '?'));
+        $stmt = $this->pdo->prepare(
+            "SELECT target_external_id, source_external_id FROM connect_translation_log
+             WHERE sync_mapping_id = ? AND status = 'success' AND target_external_id IN ({$placeholders})"
+        );
+        $stmt->execute(array_merge([(int) $mapping['id']], $targetIds));
+
+        $map = [];
+        foreach ($stmt->fetchAll() as $row) {
+            $map[(string) $row['target_external_id']] = (string) $row['source_external_id'];
+        }
+
+        return $map;
+    }
+
+    /**
+     * Bereits angelegte Rechnung ein zweites Mal anlegen (z.B. nach einer Korrektur der
+     * Bezeichnungen). Setzt den Dedup-Eintrag von 'success' auf 'error' zurueck und legt die
+     * Rechnung ueber retry() neu an. Die ALTE Rechnung wird NICHT angefasst -- sie muss vorher
+     * im Kassensystem storniert werden (Aufgabe des Haendlers, Hinweis steht im Dialog).
+     * Schlaegt das Neuanlegen fehl, bleibt der Eintrag 'error' und die Bestellung erscheint
+     * unter "Nicht angelegte Rechnungen".
+     *
+     * @return array{ok: bool, message: string}
+     */
+    public function recreate(string $shop, string $sourceId): array
+    {
+        $mapping = $this->invoiceMapping($shop);
+        if ($mapping === null) {
+            return ['ok' => false, 'message' => 'Die Rechnungserstellung ist für diesen Shop nicht eingerichtet.'];
+        }
+
+        // Atomar: nur ein erfolgreicher Eintrag dieses Shops wird zurueckgesetzt (kein Doppelklick-Risiko)
+        $reset = $this->pdo->prepare(
+            "UPDATE connect_translation_log SET status = 'error', error_message = 'Zum erneuten Anlegen zurückgesetzt (alte Rechnung vorher im Kassensystem stornieren).'
+             WHERE sync_mapping_id = :mapping_id AND source_external_id = :source_id AND status = 'success'"
+        );
+        $reset->execute(['mapping_id' => (int) $mapping['id'], 'source_id' => $sourceId]);
+        if ($reset->rowCount() === 0) {
+            return ['ok' => false, 'message' => 'Für diese Bestellung gibt es keine angelegte Rechnung (mehr) zum Zurücksetzen.'];
+        }
+
+        return $this->retry($shop, $sourceId);
+    }
+
+    /**
      * @return array<string, mixed>|null
      */
     private function invoiceMapping(string $shop): ?array

@@ -115,10 +115,24 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && ($_POST['action'] ?? '')
         : 'Rechnung konnte nicht angelegt werden: ' . $retryResult['message'];
     $flashType = $retryResult['ok'] ? 'success' : 'danger';
 }
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && ($_POST['action'] ?? '') === 'recreate_invoice') {
+    @set_time_limit(120);
+    $retryResult = $retryService->recreate($shop, trim((string) ($_POST['source_id'] ?? '')));
+    $flashMessage = $retryResult['ok']
+        ? 'Rechnung neu angelegt: ' . $retryResult['message']
+        : 'Rechnung konnte nicht neu angelegt werden: ' . $retryResult['message'];
+    $flashType = $retryResult['ok'] ? 'success' : 'danger';
+}
 try {
     $failedInvoices = $retryService->failedForShop($shop);
 } catch (\Throwable $e) {
     $failedInvoices = [];
+}
+// Zu angelegten Rechnungen die Shopify-Bestellung finden ("Neu anlegen")
+try {
+    $recreateSources = $retryService->sourceIdsForTargets($shop, array_map(static fn (array $r): string => (string) ($r['external_id'] ?? ''), $logRows));
+} catch (\Throwable $e) {
+    $recreateSources = [];
 }
 
 if (isset($_GET['pdf']) && $pdfAvailable) {
@@ -382,6 +396,17 @@ require __DIR__ . '/_header.php';
                                                 <a href="?shop=<?php echo urlencode($shop); ?><?php echo isset($_GET['preview']) ? '&amp;preview=1' : ''; ?>&amp;pdf=<?php echo urlencode((string) $row['external_id']); ?>" class="btn btn-sm btn-outline-secondary ms-2 py-0" title="Rechnung als PDF herunterladen">
                                                     <?php echo \Connect\Ui\Icon::svg('file-invoice', 14, 'me-1'); ?>PDF
                                                 </a>
+                                            <?php endif; ?>
+                                            <?php if ($row['status'] === 'success' && isset($recreateSources[(string) $row['external_id']])): ?>
+                                                <?php $recreateTargetName = (string) ($shopSettings['target_type_name'] ?? 'dem Kassensystem'); ?>
+                                                <form method="post" class="d-inline" onsubmit="return confirm('Rechnung für Bestellung <?php echo htmlspecialchars((string) $orderNumber, ENT_QUOTES); ?> neu anlegen?
+
+WICHTIG: Die bestehende Rechnung vorher in <?php echo htmlspecialchars($recreateTargetName, ENT_QUOTES); ?> stornieren, sonst gibt es die Bestellung doppelt (Umsatz und Lagerbestand).
+Bei aktiver Rechnungsmail bekommt der Kunde die neue Rechnung ebenfalls per E-Mail.');">
+                                                    <input type="hidden" name="action" value="recreate_invoice">
+                                                    <input type="hidden" name="source_id" value="<?php echo htmlspecialchars($recreateSources[(string) $row['external_id']]); ?>">
+                                                    <button type="submit" class="btn btn-sm btn-outline-secondary ms-1 py-0" title="Rechnung zu dieser Bestellung noch einmal anlegen (alte Rechnung vorher stornieren)">Neu anlegen</button>
+                                                </form>
                                             <?php endif; ?>
                                         <?php else: ?>
                                             <span class="text-secondary">—</span>
