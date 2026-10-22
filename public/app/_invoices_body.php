@@ -399,10 +399,7 @@ require __DIR__ . '/_header.php';
                                             <?php endif; ?>
                                             <?php if ($row['status'] === 'success' && isset($recreateSources[(string) $row['external_id']])): ?>
                                                 <?php $recreateTargetName = (string) ($shopSettings['target_type_name'] ?? 'dem Kassensystem'); ?>
-                                                <form method="post" class="d-inline" onsubmit="return confirm('Rechnung für Bestellung <?php echo htmlspecialchars((string) $orderNumber, ENT_QUOTES); ?> neu anlegen?
-
-WICHTIG: Die bestehende Rechnung vorher in <?php echo htmlspecialchars($recreateTargetName, ENT_QUOTES); ?> stornieren, sonst gibt es die Bestellung doppelt (Umsatz und Lagerbestand).
-Bei aktiver Rechnungsmail bekommt der Kunde die neue Rechnung ebenfalls per E-Mail.');">
+                                                <form method="post" class="d-inline" onsubmit="return confirm('Rechnung für Bestellung <?php echo htmlspecialchars((string) $orderNumber, ENT_QUOTES); ?> neu anlegen?\n\nWICHTIG: Die bestehende Rechnung vorher in <?php echo htmlspecialchars($recreateTargetName, ENT_QUOTES); ?> stornieren, sonst gibt es die Bestellung doppelt (Umsatz und Lagerbestand).\nBei aktiver Rechnungsmail bekommt der Kunde die neue Rechnung ebenfalls per E-Mail.');">
                                                     <input type="hidden" name="action" value="recreate_invoice">
                                                     <input type="hidden" name="source_id" value="<?php echo htmlspecialchars($recreateSources[(string) $row['external_id']]); ?>">
                                                     <button type="submit" class="btn btn-sm btn-outline-secondary ms-1 py-0" title="Rechnung zu dieser Bestellung noch einmal anlegen (alte Rechnung vorher stornieren)">Neu anlegen</button>
