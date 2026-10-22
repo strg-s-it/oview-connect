@@ -402,7 +402,16 @@ final class SyncRunner
             // ersetzt.
             // Shopify liefert displayFinancialStatus in Grossbuchstaben ("PAID") -- vorher wurde
             // gegen "paid" verglichen und dadurch jede Bestellung uebersprungen.
-            if (array_key_exists('financial_status', $sourceRow)
+            // Auslöser "Bestellung angelegt"/"versendet" (Händler-Einstellung, Migration 0106): dann
+            // gilt statt "bezahlt" der jeweilige Status -- das Risiko unbezahlter Rechnungen traegt der Händler.
+            $triggerTopic = (string) ($mapping['trigger_topic'] ?? '');
+            if ($triggerTopic === 'orders/create') {
+                // jede Bestellung
+            } elseif ($triggerTopic === 'orders/fulfilled') {
+                if (strtolower((string) ($sourceRow['fulfillment_status'] ?? '')) !== 'fulfilled') {
+                    continue;
+                }
+            } elseif (array_key_exists('financial_status', $sourceRow)
                 && !in_array(strtolower((string) $sourceRow['financial_status']), ['paid', 'partially_refunded'], true)
             ) {
                 continue;
@@ -456,6 +465,15 @@ final class SyncRunner
 
         if ($sourceExternalId === '') {
             return ['success' => false, 'skipped' => false, 'targetExternalId' => null, 'message' => 'Quell-Datensatz hat keine externe ID, kann nicht übersetzt werden.'];
+        }
+
+        // Rechnungs-Filter (Migration 0106, nur Admin): zutreffende Bestellungen bekommen keine Rechnung.
+        // VOR dem Claim -- so bleibt die Bestellung offen, falls der Filter spaeter wieder entfernt wird.
+        if (($mapping['mapping_kind'] ?? 'default') === 'invoice') {
+            $filterHit = InvoiceFilter::firstMatch(InvoiceFilter::rulesForShop($this->pdo, (string) $mapping['shop']), $sourceRow);
+            if ($filterHit !== null) {
+                return ['success' => true, 'skipped' => true, 'targetExternalId' => null, 'message' => "Keine Rechnung (Filter: {$filterHit})."];
+            }
         }
 
         $claim = $this->claimTranslation((int) $mapping['id'], $sourceExternalId);
