@@ -77,6 +77,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_
 }
 
 // -----------------------------------------------------------------------
+// POST: Anmelde-Hinweise eines Shops loeschen (nach einer Loesung, damit nur Neues angezeigt wird)
+// -----------------------------------------------------------------------
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'clear_auth_issues') {
+    \Connect\Auth\AuthIssueLog::clear($pdo, strtolower(trim((string) ($_POST['shop'] ?? ''))));
+}
+
+// -----------------------------------------------------------------------
 // POST: Anmeldung ohne Session-Cookie (\Connect\Security\PageToken), leer = aus, * = alle, sonst Shop-Liste
 // -----------------------------------------------------------------------
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_cookieless') {
@@ -283,6 +290,10 @@ try {
     $healthAvailable = false;
 }
 
+// Anmelde-Hinweise der letzten 7 Tage (Migration 0107) und der Stand des Cookie-Schalters
+$authIssuesByShop = \Connect\Auth\AuthIssueLog::recent($pdo, 7);
+$cookielessRaw = trim((string) \Connect\Setup\Settings::get($pdo, \Connect\Setup\Settings::COOKIELESS_AUTH_SHOPS, ''));
+
 /**
  * Kompakter Status-Chip fuer eine Connection (gruen = ok, rot = Fehler, grau = nicht geprueft).
  * Details (Zeitpunkt, Fehlertext) im Tooltip. Ohne Connection: leer.
@@ -447,6 +458,36 @@ require dirname(__DIR__) . '/app/_header.php';
                                                     <?php echo htmlspecialchars(mb_strimwidth(preg_replace('/^Verbindung fehlgeschlagen:\s*/', '', (string) ($firstError['health_message'] ?? '')) ?? '', 0, 70, '…')); ?>
                                                 </div>
                                             <?php endif; ?>
+                                        <?php endif; ?>
+                                        <?php
+                                        // Anmelde-Hinweise (Browser blockiert das Cookie usw.), siehe Connect\Auth\AuthIssueLog
+                                        $issues = $authIssuesByShop[(string) $row['shop']] ?? [];
+                                        $shopCookieless = \Connect\Setup\Settings::cookielessMatches($cookielessRaw, (string) $row['shop']);
+                                        $issueLabels = [
+                                            'cookie_fehlt' => ['Cookie-Problem', $shopCookieless ? 'bg-secondary-lt' : 'bg-red-lt', 'Der Browser hat das Session-Cookie nicht mitgeschickt, die Anfrage scheiterte (401/403).' . ($shopCookieless ? ' Cookielose Anmeldung ist für diesen Shop an, das war vermutlich davor.' : ' Lösung: unten „Anmeldung ohne Cookie“ für diesen Shop eintragen.')],
+                                            'cookie_blockiert' => ['Cookie blockiert · läuft über Token', 'bg-yellow-lt', 'Der Browser schickt das Cookie nicht mit, die Anfragen laufen dank Seiten-Token trotzdem durch.'],
+                                            'link_abgelaufen' => ['Link abgelaufen', 'bg-secondary-lt', 'Zugangslink länger als 5 Minuten alt und keine Session (401). Meist harmlos: App neu aus Shopify öffnen.'],
+                                            'sitzung_abgelaufen' => ['Sitzung abgelaufen', 'bg-secondary-lt', 'Das Cookie kam an, die Session passt aber nicht (401).'],
+                                            'csrf' => ['Anfrage abgelehnt', 'bg-orange-lt', 'Das Cookie kam an, das Sicherheitstoken passte nicht (403).'],
+                                        ];
+                                        ?>
+                                        <?php if ($issues !== []): ?>
+                                            <div class="mt-1">
+                                                <?php foreach ($issues as $issue): ?>
+                                                    <?php
+                                                    $label = $issueLabels[$issue['kind']] ?? [$issue['kind'], 'bg-secondary-lt', ''];
+                                                    $issueTitle = $label[2] . ' ' . $issue['hits'] . '× seit ' . date('d.m. H:i', (int) strtotime($issue['first_seen_at']))
+                                                        . ', zuletzt ' . date('d.m. H:i', (int) strtotime($issue['last_seen_at']))
+                                                        . ($issue['detail'] !== '' ? ' · ' . $issue['detail'] : '');
+                                                    ?>
+                                                    <span class="badge <?php echo htmlspecialchars($label[1]); ?> me-1 mb-1" title="<?php echo htmlspecialchars(trim($issueTitle)); ?>"><?php echo htmlspecialchars($label[0]); ?> · <?php echo (int) $issue['hits']; ?>×<?php echo $issue['detail'] !== '' ? ' · ' . htmlspecialchars($issue['detail']) : ''; ?></span>
+                                                <?php endforeach; ?>
+                                                <form method="post" class="d-inline m-0">
+                                                    <input type="hidden" name="action" value="clear_auth_issues">
+                                                    <input type="hidden" name="shop" value="<?php echo htmlspecialchars((string) $row['shop']); ?>">
+                                                    <button type="submit" class="btn btn-link btn-sm p-0 text-secondary" title="Hinweise für diesen Shop löschen">zurücksetzen</button>
+                                                </form>
+                                            </div>
                                         <?php endif; ?>
                                     </td>
                                     <td style="min-width:200px">

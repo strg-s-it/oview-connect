@@ -77,6 +77,8 @@ $partitionSessionCookie = static function (): void {
 
 session_start();
 $partitionSessionCookie();
+// Wie oft kam das Session-Cookie in dieser Anfrage an (0 = Browser blockiert es oder es fehlt; 2+ = Doppelung)
+$sessionCookieCount = substr_count((string) ($_SERVER['HTTP_COOKIE'] ?? ''), session_name() . '=');
 
 $shop = $_GET['shop'] ?? null;
 if (!is_string($shop) || $shop === '') {
@@ -127,14 +129,13 @@ if (preg_match('/^[a-z0-9][a-z0-9-]*$/', $shop) === 1
 
 // Diagnose fuer Anmelde-Ablehnungen (401/403): eine Zeile im PHP-Error-Log, ohne Token/Signatur-Werte.
 // Zeigt, ob das Session-Cookie ankam (und wie oft), ob ein Zugangslink in der URL stand und ob er galt.
-$authLog = static function (string $reason) use (&$sig, &$sigValid, &$expires, &$ctState, $shop): void {
-    $rawCookies = (string) ($_SERVER['HTTP_COOKIE'] ?? '');
+$authLog = static function (string $reason) use (&$sig, &$sigValid, &$expires, &$ctState, &$sessionCookieCount, $shop): void {
     @error_log('connect auth: ' . $reason . ' shop=' . $shop
         . ' script=' . basename((string) ($_SERVER['SCRIPT_NAME'] ?? ''))
         . ' method=' . (string) ($_SERVER['REQUEST_METHOD'] ?? '')
         . ' sig=' . ($sig === null ? 'nein' : ($sigValid ? 'gueltig' : ($expires < time() ? 'abgelaufen' : 'ungueltig')))
         . ' ct=' . $ctState
-        . ' cookie_session=' . substr_count($rawCookies, session_name() . '=')
+        . ' cookie_session=' . $sessionCookieCount
         . ' session_shop=' . (isset($_SESSION['connect_shop']) ? ((string) $_SESSION['connect_shop'] === $shop ? 'passt' : 'anderer') : 'leer')
         . ' dest=' . (string) ($_SERVER['HTTP_SEC_FETCH_DEST'] ?? '-')
         . ' site=' . (string) ($_SERVER['HTTP_SEC_FETCH_SITE'] ?? '-'));
@@ -149,11 +150,22 @@ if ($sigValid) {
     // Seiten-Token statt Cookie: keine neue Session-ID noetig (der Token ist selbst der Nachweis)
     $_SESSION['connect_shop'] = $shop;
     $_SESSION['connect_host'] = $ctHost;
+    if ($sessionCookieCount === 0) {
+        // Der Browser hat das Cookie nicht mitgeschickt, die Anfrage laeuft nur dank Token -- fuer die Shopliste merken
+        \Connect\Auth\AuthIssueLog::record($db->pdo(), $shop, \Connect\Auth\AuthIssueLog::COOKIE_BLOCKED_TOKEN_OK, (string) ($_SERVER['HTTP_USER_AGENT'] ?? ''));
+    }
 } elseif (($_SESSION['connect_shop'] ?? null) !== $shop) {
     // Ein abgelaufener Zugangslink in der URL ist unschaedlich, solange die Session des Shops noch gilt
     // (die Einrichtungsseiten tragen den Link in der URL, das Formular schickt dorthin -- nach 5 Minuten
     // waere sonst jede Eingabe ein 401). Nur ohne passende Session gilt der Link als Grund.
     $authLog($sig !== null ? '401 link-abgelaufen-ohne-session' : '401 nicht-angemeldet');
+    // Hinweis fuer die Shopliste (admin/shops.php): ohne Cookie = Browser blockiert es, sonst Session/Link abgelaufen
+    \Connect\Auth\AuthIssueLog::record(
+        $db->pdo(),
+        $shop,
+        $sessionCookieCount === 0 ? \Connect\Auth\AuthIssueLog::COOKIE_MISSING : ($sig !== null ? \Connect\Auth\AuthIssueLog::LINK_EXPIRED : \Connect\Auth\AuthIssueLog::SESSION_MISMATCH),
+        (string) ($_SERVER['HTTP_USER_AGENT'] ?? '')
+    );
     if ($sig !== null) {
         \Connect\Http\ErrorPage::show(
             401,
@@ -181,6 +193,12 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && !$requestProvesAccess) {
     $csrfSent = $_POST['_csrf'] ?? ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? '');
     if (!is_string($csrfSent) || $csrfSent === '' || !hash_equals((string) $_SESSION['connect_csrf'], $csrfSent)) {
         $authLog('403 csrf ' . (is_string($csrfSent) && $csrfSent !== '' ? 'token-passt-nicht' : 'token-fehlt'));
+        \Connect\Auth\AuthIssueLog::record(
+            $db->pdo(),
+            $shop,
+            $sessionCookieCount === 0 ? \Connect\Auth\AuthIssueLog::COOKIE_MISSING : \Connect\Auth\AuthIssueLog::CSRF,
+            (string) ($_SERVER['HTTP_USER_AGENT'] ?? '')
+        );
         \Connect\Http\ErrorPage::show(
             403,
             'Anfrage abgelehnt',

@@ -25,7 +25,13 @@ final class Settings
 
     public static function cookielessEnabledFor(PDO $pdo, string $shop): bool
     {
-        $value = trim((string) self::get($pdo, self::COOKIELESS_AUTH_SHOPS, ''));
+        return self::cookielessMatches((string) self::get($pdo, self::COOKIELESS_AUTH_SHOPS, ''), $shop);
+    }
+
+    /** $value = gespeicherter Wert von cookieless_auth_shops (leer = aus, * = alle, sonst Liste) */
+    public static function cookielessMatches(string $value, string $shop): bool
+    {
+        $value = trim($value);
         if ($value === '') {
             return false;
         }
