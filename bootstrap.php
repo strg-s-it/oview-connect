@@ -37,10 +37,10 @@ $crypto = new Crypto($config->require('CONNECT_ENCRYPTION_KEY'));
 // Eigener Session-Name, getrennt von der Admin-Session (AdminAuth nutzt
 // "connect_admin"): beide Vertrauensmodelle (Shopify-Signatur hier, Passwort-
 // Login dort) teilten sich sonst dasselbe Cookie auf derselben Domain.
-// Name bewusst neu (vorher "connect_app"): Reste des alten Cookies -- auch eine kurzzeitig ausgelieferte
-// partitionierte Variante -- erzeugten zwei gleichnamige Cookies, PHP las das falsche, und jedes Absenden
-// endete mit 403. Unter neuem Namen werden sie ignoriert; Merchants melden sich wie immer ueber den Link an.
-session_name('connect_sess');
+// Name bewusst neu (vorher "connect_app", dann "connect_sess"): Reste alter Cookies -- auch einer kurzzeitig
+// ausgelieferten partitionierten Variante -- erzeugten zwei gleichnamige Cookies, PHP las das falsche, und jedes
+// Absenden endete mit 403. Unter diesem Namen gibt es nur die partitionierte Variante (siehe unten).
+session_name('connect_sp');
 ini_set('session.use_strict_mode', '1'); // unbekannte Session-IDs ablehnen statt uebernehmen (Fixation)
 ini_set('session.use_only_cookies', '1');
 session_set_cookie_params([
@@ -49,7 +49,34 @@ session_set_cookie_params([
     'httponly' => true,
     'path' => '/',
 ]);
+// Im Shopify-iframe ist das Session-Cookie ein Drittanbieter-Cookie. Chrome und Edge blockieren solche Cookies
+// je nach Einstellung (bei einer Kundin: Log "cookie_session=0" bei jedem POST) -- dann gibt es auf Folgeseiten
+// ohne Zugangslink nur 401 "Nicht angemeldet", und das Absenden von Formularen scheitert mit 403. "Partitioned"
+// (CHIPS) erlaubt das Cookie pro einbettender Seite auch dann. PHP 8.3 kennt das Attribut in
+// session_set_cookie_params() nicht, deshalb wird der Set-Cookie-Header nachtraeglich ergaenzt. Browser, die
+// das Attribut nicht kennen, ignorieren es.
+$partitionSessionCookie = static function (): void {
+    $prefix = session_name() . '=';
+    $cookies = [];
+    foreach (headers_list() as $header) {
+        if (stripos($header, 'Set-Cookie:') === 0) {
+            $cookies[] = trim(substr($header, strlen('Set-Cookie:')));
+        }
+    }
+    if ($cookies === []) {
+        return;
+    }
+    header_remove('Set-Cookie');
+    foreach ($cookies as $cookie) {
+        if (str_starts_with($cookie, $prefix) && stripos($cookie, 'partitioned') === false) {
+            $cookie .= '; Partitioned';
+        }
+        header('Set-Cookie: ' . $cookie, false);
+    }
+};
+
 session_start();
+$partitionSessionCookie();
 
 $shop = $_GET['shop'] ?? null;
 if (!is_string($shop) || $shop === '') {
@@ -93,6 +120,7 @@ $authLog = static function (string $reason) use (&$sig, &$sigValid, &$expires, $
 
 if ($sigValid) {
     session_regenerate_id(true); // neue Session-ID bei frisch verifiziertem Handoff -- schuetzt vor Session-Fixation
+    $partitionSessionCookie();
     $_SESSION['connect_shop'] = $shop;
     $_SESSION['connect_host'] = (string) ($_GET['host'] ?? '');
 } elseif (($_SESSION['connect_shop'] ?? null) !== $shop) {
