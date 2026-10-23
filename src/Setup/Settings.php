@@ -16,6 +16,27 @@ final class Settings
 {
     public const NEW_INSTALLS_TO_CONNECT = 'new_installs_to_connect';
 
+    /**
+     * Anmeldung ohne Session-Cookie (Connect\Security\PageToken): "" = aus (Standard, Cookie wie bisher),
+     * "*" = fuer alle Shops, sonst eine Liste von Shop-Kuerzeln, durch Komma getrennt (Pilot).
+     * Zurueck zum alten Verhalten = Wert leeren (Admin -> Shops).
+     */
+    public const COOKIELESS_AUTH_SHOPS = 'cookieless_auth_shops';
+
+    public static function cookielessEnabledFor(PDO $pdo, string $shop): bool
+    {
+        $value = trim((string) self::get($pdo, self::COOKIELESS_AUTH_SHOPS, ''));
+        if ($value === '') {
+            return false;
+        }
+        if ($value === '*') {
+            return true;
+        }
+        $shops = array_filter(array_map('trim', explode(',', strtolower($value))), static fn (string $s): bool => $s !== '');
+
+        return in_array(strtolower($shop), $shops, true);
+    }
+
     public static function get(PDO $pdo, string $key, ?string $default = null): ?string
     {
         try {

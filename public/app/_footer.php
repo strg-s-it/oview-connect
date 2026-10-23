@@ -37,6 +37,91 @@ declare(strict_types=1);
             update();
         })();
     </script>
+    <?php if (!empty($GLOBALS['connect_ct'])): ?>
+    <script>
+        // Cookielose Anmeldung (Connect\Security\PageToken, nur fuer Shops mit aktivem Schalter -- sonst wird dieser
+        // Block gar nicht ausgegeben): der Seiten-Token haengt an jedem Link, Formular, fetch-Aufruf und window.open
+        // innerhalb der App und ersetzt so das Session-Cookie, das Browser im Shopify-iframe blockieren.
+        (function () {
+            var ct = <?php echo json_encode((string) $GLOBALS['connect_ct']); ?>;
+            if (!ct) { return; }
+
+            function appUrl(href) {
+                try {
+                    var u = new URL(href, window.location.href);
+                    if (u.origin !== window.location.origin) { return null; }
+                    // nur Seiten der App, keine Dateien (CSS/JS/Bilder/Downloads)
+                    if (/\/assets\//.test(u.pathname) || /\/brand\.php$/.test(u.pathname)) { return null; }
+                    if (!/\.php$/.test(u.pathname) && !/\/$/.test(u.pathname)) { return null; }
+                    return u;
+                } catch (e) { return null; }
+            }
+            function withCt(href) {
+                var u = appUrl(href);
+                if (!u) { return href; }
+                u.searchParams.set('ct', ct);
+                return u.href;
+            }
+            window.connectWithCt = withCt;
+            // fuer Seiten, die sich selbst neu laden (Fortschrittsanzeigen): der Token in der Adresse waere sonst
+            // so alt wie die Seite, der neue steckt nur in diesem Skript
+            window.connectReload = function () { window.location.href = withCt(window.location.href); };
+
+            function tagLinks(root) {
+                Array.prototype.forEach.call((root || document).querySelectorAll('a[href]'), function (a) {
+                    var href = a.getAttribute('href') || '';
+                    if (href === '' || href.charAt(0) === '#' || /^(javascript|mailto|tel):/i.test(href) || a.hasAttribute('download')) { return; }
+                    var rewritten = withCt(a.href);
+                    if (rewritten !== a.href) { a.href = rewritten; }
+                });
+            }
+            tagLinks(document);
+            // Fangnetz fuer spaeter eingefuegte Links
+            document.addEventListener('click', function (e) {
+                var a = e.target && e.target.closest ? e.target.closest('a[href]') : null;
+                if (a) { tagLinks(a.parentNode); }
+            }, true);
+
+            function tagForm(form) {
+                if (!form || form.nodeName !== 'FORM') { return; }
+                var input = form.querySelector('input[name="ct"]');
+                if (!input) {
+                    input = document.createElement('input');
+                    input.type = 'hidden';
+                    input.name = 'ct';
+                    form.appendChild(input);
+                }
+                input.value = ct;
+            }
+            Array.prototype.forEach.call(document.querySelectorAll('form'), tagForm);
+            document.addEventListener('submit', function (e) { tagForm(e.target); }, true);
+
+            // fetch innerhalb der App: Token als Header (der Server bevorzugt ihn vor Formular und Adresse)
+            var nativeFetch = window.fetch;
+            if (nativeFetch) {
+                window.fetch = function (input, init) {
+                    try {
+                        var url = typeof input === 'string' ? input : (input && input.url ? input.url : '');
+                        if (appUrl(url)) {
+                            init = init || {};
+                            var headers = new Headers(init.headers || (typeof input !== 'string' && input ? input.headers : undefined));
+                            headers.set('X-Connect-Token', ct);
+                            init.headers = headers;
+                        }
+                    } catch (e) { /* ohne Token weiter, der Server entscheidet */ }
+                    return nativeFetch.call(this, input, init);
+                };
+            }
+
+            var nativeOpen = window.open;
+            window.open = function (url) {
+                var args = Array.prototype.slice.call(arguments);
+                if (typeof url === 'string') { args[0] = withCt(url); }
+                return nativeOpen.apply(window, args);
+            };
+        })();
+    </script>
+    <?php endif; ?>
     <script>
         // CSRF-Token (siehe bootstrap.php / admin_bootstrap.php) in jedes POST-
         // Formular eintragen. Bewusst per Script statt in jedem der ~60

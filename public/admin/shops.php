@@ -77,6 +77,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_
 }
 
 // -----------------------------------------------------------------------
+// POST: Anmeldung ohne Session-Cookie (\Connect\Security\PageToken), leer = aus, * = alle, sonst Shop-Liste
+// -----------------------------------------------------------------------
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_cookieless') {
+    $rawList = strtolower(trim((string) ($_POST['cookieless_auth_shops'] ?? '')));
+    if ($rawList === '*') {
+        $cleanList = '*';
+    } else {
+        $parts = [];
+        foreach (explode(',', $rawList) as $part) {
+            $part = preg_replace('/\.myshopify\.com$/', '', trim($part)) ?? '';
+            if ($part !== '' && preg_match('/^[a-z0-9][a-z0-9-]*$/', $part) === 1) {
+                $parts[$part] = $part;
+            }
+        }
+        $cleanList = implode(',', $parts);
+    }
+    try {
+        \Connect\Setup\Settings::set($pdo, \Connect\Setup\Settings::COOKIELESS_AUTH_SHOPS, $cleanList);
+        $bridgeMessage = $cleanList === ''
+            ? 'Cookielose Anmeldung ist aus: alle Shops nutzen wieder das Session-Cookie.'
+            : ($cleanList === '*' ? 'Cookielose Anmeldung gilt jetzt für alle Shops.' : 'Cookielose Anmeldung gilt jetzt nur für: ' . $cleanList . '.');
+        $bridgeMessageType = 'success';
+    } catch (\Throwable $e) {
+        $bridgeMessage = 'Speichern fehlgeschlagen (Migration 0076 eingespielt?): ' . $e->getMessage();
+        $bridgeMessageType = 'danger';
+    }
+}
+
+// -----------------------------------------------------------------------
 // POST: Shop komplett aus Connect entfernen (z.B. fehlerhafte Test-Eintraege
 // wie "crystalp" statt "crystalpjewellery"). Loescht Connections (kaskadiert
 // per FK auf Sync Mappings/Field Mappings/Jobs/Runs), Webhook-Events und
@@ -525,6 +554,32 @@ require dirname(__DIR__) . '/app/_header.php';
                         <span class="form-check-label">Neuinstallationen direkt in Connect einrichten</span>
                     </label>
                     <button type="submit" class="btn btn-primary" onclick="return this.form.new_installs_to_connect.checked === <?php echo $newInstallsSetting === '1' ? 'true' : 'false'; ?> || confirm(this.form.new_installs_to_connect.checked ? 'Neuinstallationen ab sofort direkt in Connect einrichten?' : 'Neuinstallationen wieder in der alten Welt einrichten?');">Speichern</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <?php $cookielessSetting = trim((string) \Connect\Setup\Settings::get($pdo, \Connect\Setup\Settings::COOKIELESS_AUTH_SHOPS, '')); ?>
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h3 class="card-title">Anmeldung ohne Cookie</h3>
+                <div class="card-actions">
+                    <span class="badge <?php echo $cookielessSetting === '' ? 'bg-secondary-lt' : 'bg-green-lt'; ?>"><?php echo $cookielessSetting === '' ? 'aus' : ($cookielessSetting === '*' ? 'alle Shops' : 'Pilot'); ?></span>
+                </div>
+            </div>
+            <div class="card-body">
+                <p class="text-secondary">
+                    Im Shopify-Fenster blockieren manche Browser das Session-Cookie (Folge: „Nicht angemeldet“ oder „Anfrage abgelehnt“).
+                    Ist das hier an, tragen Links, Formulare und Abfragen der Händler-Seiten stattdessen einen kurzlebigen Token
+                    (30 Minuten, wird bei jeder Seite erneuert). <strong>Leer = aus</strong> (wie bisher, nur Cookie) –
+                    damit steigst du jederzeit zurück. <code>*</code> = alle Shops, sonst Shop-Kürzel durch Komma getrennt (Pilot, z. B.
+                    <code>strgs-s-it-demo,p2sqyv-d5</code>). Gilt sofort, ohne Upload.
+                </p>
+                <form method="post" class="d-flex gap-2 align-items-center flex-wrap" autocomplete="off">
+                    <input type="hidden" name="action" value="save_cookieless">
+                    <input type="text" name="cookieless_auth_shops" class="form-control" style="max-width: 32rem;" value="<?php echo htmlspecialchars($cookielessSetting); ?>" placeholder="leer = aus · * = alle · shop1,shop2" autocomplete="off">
+                    <button type="submit" class="btn btn-primary">Speichern</button>
                 </form>
             </div>
         </div>

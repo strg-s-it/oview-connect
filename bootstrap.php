@@ -104,14 +104,36 @@ if ($sig !== null) {
         && hash_equals($expected, (string) $sig);
 }
 
+// Cookielose Anmeldung (Connect\Security\PageToken): nur fuer Shops in connect_settings.cookieless_auth_shops.
+// Der Seiten-Token steckt in Link, Formular oder Header (X-Connect-Token, vom Skript in app/_footer.php gesetzt)
+// und ersetzt dort das Session-Cookie, das Browser im Shopify-iframe blockieren. Aus = alles wie bisher.
+$cookieless = false;
+$ctValid = false;
+$ctHost = '';
+$ctState = 'aus';
+if (preg_match('/^[a-z0-9][a-z0-9-]*$/', $shop) === 1
+    && \Connect\Setup\Settings::cookielessEnabledFor($db->pdo(), $shop)
+) {
+    $cookieless = true;
+    $ctSent = $_SERVER['HTTP_X_CONNECT_TOKEN'] ?? ($_POST['ct'] ?? ($_GET['ct'] ?? ''));
+    $ctState = 'fehlt';
+    if (is_string($ctSent) && $ctSent !== '') {
+        $ctData = \Connect\Security\PageToken::verify($ctSent, $shop, $config->require('CONNECT_SHOPIFY_API_SECRET'));
+        $ctValid = $ctData !== null;
+        $ctHost = $ctData['host'] ?? '';
+        $ctState = $ctValid ? 'gueltig' : 'ungueltig';
+    }
+}
+
 // Diagnose fuer Anmelde-Ablehnungen (401/403): eine Zeile im PHP-Error-Log, ohne Token/Signatur-Werte.
 // Zeigt, ob das Session-Cookie ankam (und wie oft), ob ein Zugangslink in der URL stand und ob er galt.
-$authLog = static function (string $reason) use (&$sig, &$sigValid, &$expires, $shop): void {
+$authLog = static function (string $reason) use (&$sig, &$sigValid, &$expires, &$ctState, $shop): void {
     $rawCookies = (string) ($_SERVER['HTTP_COOKIE'] ?? '');
     @error_log('connect auth: ' . $reason . ' shop=' . $shop
         . ' script=' . basename((string) ($_SERVER['SCRIPT_NAME'] ?? ''))
         . ' method=' . (string) ($_SERVER['REQUEST_METHOD'] ?? '')
         . ' sig=' . ($sig === null ? 'nein' : ($sigValid ? 'gueltig' : ($expires < time() ? 'abgelaufen' : 'ungueltig')))
+        . ' ct=' . $ctState
         . ' cookie_session=' . substr_count($rawCookies, session_name() . '=')
         . ' session_shop=' . (isset($_SESSION['connect_shop']) ? ((string) $_SESSION['connect_shop'] === $shop ? 'passt' : 'anderer') : 'leer')
         . ' dest=' . (string) ($_SERVER['HTTP_SEC_FETCH_DEST'] ?? '-')
@@ -123,6 +145,10 @@ if ($sigValid) {
     $partitionSessionCookie();
     $_SESSION['connect_shop'] = $shop;
     $_SESSION['connect_host'] = (string) ($_GET['host'] ?? '');
+} elseif ($ctValid) {
+    // Seiten-Token statt Cookie: keine neue Session-ID noetig (der Token ist selbst der Nachweis)
+    $_SESSION['connect_shop'] = $shop;
+    $_SESSION['connect_host'] = $ctHost;
 } elseif (($_SESSION['connect_shop'] ?? null) !== $shop) {
     // Ein abgelaufener Zugangslink in der URL ist unschaedlich, solange die Session des Shops noch gilt
     // (die Einrichtungsseiten tragen den Link in der URL, das Formular schickt dorthin -- nach 5 Minuten
@@ -148,7 +174,10 @@ if ($sigValid) {
 // steckt in der Session und wird per Script aus public/app/_footer.php in jedes
 // POST-Formular eingetragen. Laeuft bewusst NACH der Authentifizierung oben.
 $_SESSION['connect_csrf'] ??= bin2hex(random_bytes(32));
-if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
+// Bei der cookielosen Anmeldung steckt ein nicht erratbarer Nachweis (Seiten-Token bzw. gueltiger Zugangslink)
+// in der Anfrage selbst -- eine fremde Seite kann ihn nicht mitschicken, die Session-Pruefung entfaellt dort.
+$requestProvesAccess = $cookieless && ($ctValid || $sigValid);
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && !$requestProvesAccess) {
     $csrfSent = $_POST['_csrf'] ?? ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? '');
     if (!is_string($csrfSent) || $csrfSent === '' || !hash_equals((string) $_SESSION['connect_csrf'], $csrfSent)) {
         $authLog('403 csrf ' . (is_string($csrfSent) && $csrfSent !== '' ? 'token-passt-nicht' : 'token-fehlt'));
@@ -167,6 +196,11 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
 // enthalten Kundendaten, daher zusaetzlich kein MIME-Sniffing.
 header('Referrer-Policy: no-referrer');
 header('X-Content-Type-Options: nosniff');
+
+// Frischer Seiten-Token fuer Links, Formulare und Weiterleitungen dieser Seite (gleitende Laufzeit)
+$GLOBALS['connect_ct'] = $cookieless
+    ? \Connect\Security\PageToken::issue($shop, (string) ($_SESSION['connect_host'] ?? ''), $config->require('CONNECT_SHOPIFY_API_SECRET'))
+    : '';
 
 // Erlaubt das Einbetten in Shopify Admin (wie die alte Welt in index.php) --
 // ohne diesen Header wuerde der Browser die Seite im iframe blockieren.
@@ -187,7 +221,7 @@ if (basename(dirname($scriptPath)) === 'app' && basename($scriptPath) !== 'welco
             . '&expires=' . $expires
             . '&sig=' . urlencode((string) $sig);
     }
-    header('Location: ' . $gateUrl);
+    header('Location: ' . \Connect\Http\Url::withToken($gateUrl));
     exit;
 }
 

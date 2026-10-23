@@ -44,7 +44,7 @@ if ($available && $_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     } elseif ($action === 'vote') {
         $board->vote($shop, (int) ($_POST['wish_id'] ?? 0), ($_POST['on'] ?? '') === '1');
-        header('Location: ?shop=' . urlencode($shop) . $previewSuffix . '#wish-' . (int) ($_POST['wish_id'] ?? 0));
+        header('Location: ' . \Connect\Http\Url::withToken('?shop=' . urlencode($shop) . $previewSuffix . '#wish-' . (int) ($_POST['wish_id'] ?? 0)));
         exit;
     }
 }

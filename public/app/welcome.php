@@ -39,7 +39,7 @@ $pending = $legal->pendingForShop($shop);
 
 if (!$wizard->isAvailable()) {
     if (!WelcomeGate::isRequired($pdo, $shop)) {
-        header('Location: ' . $dashboardUrl); // z.B. "Assistent starten" vor Migration 0078
+        header('Location: ' . \Connect\Http\Url::withToken($dashboardUrl)); // z.B. "Assistent starten" vor Migration 0078
         exit;
     }
     \Connect\Http\ErrorPage::show(503, 'Einrichtung wird vorbereitet', 'oView Connect wird gerade aktualisiert. Bitte versuche es in ein paar Minuten noch einmal.');
@@ -51,19 +51,24 @@ if (!$wizard->isAvailable()) {
 $rerunKey = 'connect_wizard_rerun';
 if (isset($_GET['cancel'])) {
     unset($_SESSION[$rerunKey]);
-    header('Location: ' . $dashboardUrl);
+    header('Location: ' . \Connect\Http\Url::withToken($dashboardUrl));
     exit;
 }
 if (isset($_GET['rerun']) && $wizard->isCompleted($shop) && $pending === []) {
     $wizard->startRerun($shop);
     $_SESSION[$rerunKey] = $shop;
-    header('Location: welcome.php' . $q . '&step=software');
+    header('Location: ' . \Connect\Http\Url::withToken('welcome.php' . $q . '&wz=rerun&step=software'));
     exit;
 }
-$rerun = ($_SESSION[$rerunKey] ?? null) === $shop && $wizard->isCompleted($shop);
+// Der Merkzettel "erneut durchgehen" steckt in der Session -- ohne Session-Cookie (cookielose Anmeldung) reist er
+// stattdessen als Parameter wz=rerun in den Schritt-Adressen und Formularen mit.
+$rerun = (($_SESSION[$rerunKey] ?? null) === $shop || (string) ($_GET['wz'] ?? '') === 'rerun') && $wizard->isCompleted($shop);
+if ($rerun) {
+    $q .= '&wz=rerun';
+}
 
 if (!$rerun && !WelcomeGate::isRequired($pdo, $shop) && $_SERVER['REQUEST_METHOD'] !== 'POST') {
-    header('Location: ' . $dashboardUrl);
+    header('Location: ' . \Connect\Http\Url::withToken($dashboardUrl));
     exit;
 }
 
@@ -72,7 +77,7 @@ $legalOnly = $wizard->isCompleted($shop) && !$rerun;
 
 $stepUrl = static fn (string $step): string => 'welcome.php' . $q . '&step=' . urlencode($step);
 $redirect = static function (string $url): never {
-    header('Location: ' . $url);
+    header('Location: ' . \Connect\Http\Url::withToken($url));
     exit;
 };
 $nextStepAfter = static function (string $step) use ($wizard, $shop): string {
@@ -468,7 +473,7 @@ require __DIR__ . '/_header.php';
                 (function () {
                     var touched = false;
                     document.querySelectorAll('input[name="compare"]').forEach(function (r) { r.addEventListener('change', function () { touched = true; }); });
-                    setTimeout(function () { if (!touched) { location.reload(); } }, 20000);
+                    setTimeout(function () { if (!touched) { (window.connectReload || function () { location.reload(); })(); } }, 20000);
                 })();
             </script>
         <?php endif; ?>
@@ -500,7 +505,7 @@ require __DIR__ . '/_header.php';
             <div class="alert alert-info mb-0">
                 Die Standorte deines Shops werden gerade aus Shopify geladen. Das dauert nur einen Moment, danach kannst du hier den Standort wählen.
             </div>
-            <script>setTimeout(function () { location.reload(); }, 6000);</script>
+            <script>setTimeout(function () { (window.connectReload || function () { location.reload(); })(); }, 6000);</script>
         <?php elseif (count($locations) === 1): ?>
             <div class="text-secondary small">Dein Shop hat einen Standort: <strong><?php echo htmlspecialchars($locations[0]['name']); ?></strong>. Abgeglichen wird dessen Bestand.</div>
         <?php else: ?>

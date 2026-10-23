@@ -87,6 +87,14 @@ bin/scheduler.php      Hintergrund-Jobs (CLI, atomarer Claim, 1 Job je Aufruf, m
 - Ausgehende Requests: `Http\OutboundGuard` (nur https, öffentliche IPs, DNS gepinnt);
   Shopify-`base_url` muss `<shop>.myshopify.com` sein, bevor das App-Secret zum Token-Refresh geht.
 - Admin-Login mit Sperre (5 Fehlversuche/Konto, 20/IP). Händler-POSTs brauchen CSRF-Token.
+- **Händler-Anmeldung ohne Cookie (Schalter, Standard aus):** Im Shopify-iframe blockieren Browser das Session-
+  Cookie. Admin → Shops → „Anmeldung ohne Cookie“ (`connect_settings.cookieless_auth_shops`: leer = aus, `*` = alle,
+  sonst Shop-Liste) schaltet `Security\PageToken` ein: `bootstrap.php` akzeptiert einen Token `ct` (Header
+  `X-Connect-Token`, POST oder URL; 30 Min., gleitend), das Skript in `public/app/_footer.php` hängt ihn an Links,
+  Formulare, `fetch`, `window.open`; serverseitige Weiterleitungen über `Http\Url::withToken()`, Selbst-Neuladen über
+  `window.connectReload()`. Ein Token in der Anfrage ersetzt die Session-Prüfung inkl. CSRF. Neue Redirects/Reloads
+  auf Händlerseiten müssen diese Helfer nutzen. Session-Cookie heißt `connect_sp` (partitioniert); `connect_flash`
+  geht ohne Cookie verloren (nur Komfort). Tokens stehen in URLs und damit in Zugriffsprotokollen.
 
 ## Deploy und Server
 

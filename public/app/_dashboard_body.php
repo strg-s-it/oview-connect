@@ -222,7 +222,7 @@ $agoText = static function (?int $minutes): string {
             </div>
         </div></div>
         <?php if (!$isAdmin): ?>
-            <script>setTimeout(function () { window.location.reload(); }, 60000); // Fortschritt aktualisieren</script>
+            <script>setTimeout(function () { (window.connectReload || function () { window.location.reload(); })(); }, 60000); // Fortschritt aktualisieren</script>
         <?php endif; ?>
     <?php endif; ?>
     <?php if ($problemCount > 0): ?>

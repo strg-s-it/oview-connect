@@ -287,7 +287,7 @@ $lockedGroups = array_keys(array_filter($groupAllowed, static fn (bool $a): bool
 </script>
 
 <?php if ($state === 'running'): ?>
-    <script>setTimeout(function () { window.location.href = window.location.pathname + window.location.search; }, 15000);</script>
+    <script>setTimeout(function () { var u = window.location.pathname + window.location.search; window.location.href = window.connectWithCt ? window.connectWithCt(u) : u; }, 15000);</script>
 <?php endif; ?>
 
 <?php require __DIR__ . '/_footer.php'; ?>
