@@ -11,7 +11,7 @@ declare(strict_types=1);
  * Optional:
  *   $flashMessage string|null
  *   $flashType    "success"|"danger"|"info" (Default "info")
- *   $homeUrl      string, Ziel des Logos (Default "index.php" -- im Admin-
+ *   $homeUrl      string, Ziel des Logos (Default "dashboard.php" -- im Admin-
  *                 Kontext auf "shops.php" setzen, da es dort kein
  *                 gleichrangiges index.php gibt)
  *   $navItems     array<array{0:string,1:string}> Liste [url, label] fuer die
@@ -56,7 +56,7 @@ $breadcrumbs = $breadcrumbs ?? [];
 // Vorschau herausfaellt.
 $homeUrl = $homeUrl ?? (isset($_GET['preview'])
     ? 'dashboard.php?shop=' . urlencode($_GET['shop'] ?? '') . '&preview=1'
-    : 'index.php?shop=' . urlencode($_GET['shop'] ?? ''));
+    : 'dashboard.php?shop=' . urlencode($_GET['shop'] ?? '')); // public/app/ hat kein index.php (war: 404 beim Klick aufs Logo)
 $navItems = $navItems ?? [['connections.php?shop=' . urlencode($_GET['shop'] ?? ''), 'Connections']];
 $adminNavItems = $adminNavItems ?? [];
 // Welcher admin/*.php-Eintrag gilt als "aktiv" (siehe admin/_nav.php): bei einer
