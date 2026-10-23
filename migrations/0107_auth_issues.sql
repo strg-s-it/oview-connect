@@ -13,6 +13,7 @@
 --   hits   Anzahl seit first_seen_at
 --   detail grober Browser (z.B. Chrome 154, Mac)
 --
+-- MariaDB 5.5: nur EINE TIMESTAMP-Spalte darf DEFAULT CURRENT_TIMESTAMP haben, last_seen_at setzt der Code (NOW()).
 -- Hinweis: der Installer trennt am Semikolon - deshalb keines in Strings oder Kommentaren.
 -- =============================================================================
 
@@ -23,7 +24,7 @@ CREATE TABLE IF NOT EXISTS connect_auth_issues (
     hits          INT UNSIGNED NOT NULL DEFAULT 1,
     detail        VARCHAR(190) NULL,
     first_seen_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    last_seen_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_seen_at  TIMESTAMP NULL DEFAULT NULL,
     PRIMARY KEY (id),
     UNIQUE KEY uq_auth_issues_shop_kind (shop, kind)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
