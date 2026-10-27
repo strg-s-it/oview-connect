@@ -348,7 +348,7 @@ final class FlowInspector
                 $roleField !== null ? $this->url('object_edit.php', ['id' => (int) $roleField['object_id']], false) : $this->url('connector_types.php', [], false), $roleField === null),
         ];
         if ($isInvoice) {
-            $settings[] = $this->setting('Kassierer', ($s['invoice_cashier_id'] ?? null) !== null ? (string) $s['invoice_cashier_id'] : 'keiner', self::SRC_SHOP, $settingsWhere, $settingsUrl);
+            $settings[] = $this->setting('Kassierer', ($s['invoice_cashier_id'] ?? null) !== null ? (string) $s['invoice_cashier_id'] : 'keiner – bitte auswählen', self::SRC_SHOP, $settingsWhere, $settingsUrl, ($s['invoice_cashier_id'] ?? null) === null);
             $settings[] = $this->setting('Zahlungsart', (string) ($s['invoice_payment_method'] ?? '') !== '' ? (string) $s['invoice_payment_method'] : 'keine', self::SRC_SHOP, $settingsWhere, $settingsUrl);
         }
 

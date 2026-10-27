@@ -1964,6 +1964,21 @@ require __DIR__ . '/_header.php';
                                     </option>
                                 <?php endforeach; ?>
                             </select>
+                            <?php
+                            $cashierCurrent = (string) ($shopSettings['invoice_cashier_id'] ?? '');
+                            $cashierKnown = false;
+                            foreach ($helloCashEmployees as $employee) {
+                                if ((string) ($employee['id'] ?? '') === $cashierCurrent) {
+                                    $cashierKnown = true;
+                                    break;
+                                }
+                            }
+                            ?>
+                            <?php if ($cashierCurrent === ''): ?>
+                                <div class="alert alert-warning py-1 px-2 mt-1 mb-1 small">Kein Kassierer ausgewählt – <?php echo htmlspecialchars($targetName); ?> verlangt einen Kassierer, sonst kann die Rechnung fehlschlagen. Bitte auswählen und speichern.</div>
+                            <?php elseif (count($helloCashEmployees) > 0 && !$cashierKnown): ?>
+                                <div class="alert alert-warning py-1 px-2 mt-1 mb-1 small">Der gespeicherte Kassierer (ID <?php echo htmlspecialchars($cashierCurrent); ?>) ist in <?php echo htmlspecialchars($targetName); ?> nicht vorhanden (gelöscht oder anderes Konto). Bitte neu auswählen und speichern, sonst schlägt die Rechnung mit „cashier_not_found“ fehl.</div>
+                            <?php endif; ?>
                             <?php if (count($helloCashEmployees) === 0): ?>
                                 <small class="text-secondary">Die Mitarbeiter werden gerade aus <?php echo htmlspecialchars($targetName); ?> geladen – schau in ein paar Minuten wieder vorbei.</small>
                             <?php else: ?>
