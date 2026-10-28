@@ -22,6 +22,12 @@ final class HttpClient
      */
     private static string $outboundIp = '';
 
+    /** Sekunden bis zum Abbruch des Verbindungsaufbaus (getrennt vom Gesamt-Timeout). */
+    private const CONNECT_TIMEOUT = 10;
+
+    /** Wiederholungen, wenn nachweislich gar keine Verbindung zustande kam. */
+    private const CONNECT_RETRIES = 2;
+
     public static function configureOutboundIp(string $ip): void
     {
         $ip = trim($ip);
@@ -103,6 +109,7 @@ final class HttpClient
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_HEADER => true,
             CURLOPT_TIMEOUT => $this->timeoutSeconds,
+            CURLOPT_CONNECTTIMEOUT => self::CONNECT_TIMEOUT,
             CURLOPT_SSL_VERIFYPEER => $this->verifySsl,
             CURLOPT_SSL_VERIFYHOST => $this->verifySsl ? 2 : 0,
             // Ohne User-Agent senden manche Bot-/Sicherheitsabwehrsysteme
@@ -141,6 +148,20 @@ final class HttpClient
         curl_setopt_array($ch, $options);
 
         $raw = curl_exec($ch);
+
+        // Kurze Netzaussetzer (Verbindung/TLS kommt nicht zustande): die Anfrage ist dann nachweislich
+        // noch NICHT beim Ziel angekommen (TLS-Handshake nie fertig) -- daher auch fuer POST/Mutationen
+        // gefahrlos wiederholbar. Fehler nach dem Handshake (z.B. Antwort-Timeout) werden nie wiederholt.
+        for ($retry = 0; $raw === false && $retry < self::CONNECT_RETRIES; $retry++) {
+            $errno = curl_errno($ch);
+            $notSent = in_array($errno, [CURLE_COULDNT_RESOLVE_HOST, CURLE_COULDNT_CONNECT, CURLE_OPERATION_TIMEDOUT, CURLE_SSL_CONNECT_ERROR], true)
+                && (float) curl_getinfo($ch, CURLINFO_APPCONNECT_TIME) === 0.0;
+            if (!$notSent) {
+                break;
+            }
+            sleep(2);
+            $raw = curl_exec($ch);
+        }
 
         // Tatsaechlich benutzte Absender-IP merken (Lauf-Protokoll, Fehlermeldung). Kam keine
         // Verbindung zustande (z.B. Zeitueberschreitung), meldet cURL keine -- dann die
