@@ -169,11 +169,12 @@ final class GenericHttpConnector implements ConnectorInterface
 
     /**
      * Sicherheitsgrenze gegen Endlosschleifen bei fehlerhaftem pageInfo
-     * (nicht gegen echte, grosse Kataloge -- 200 Seiten a 100 Datensaetze
-     * sind bereits 20.000 Stueck, weit mehr als ein Verbindungstest/eine
-     * manuelle Vorschau je braucht).
+     * (nicht gegen echte, grosse Kataloge). Ein wiederholter Cursor wird
+     * zusaetzlich sofort erkannt, daher darf die Grenze grosszuegig sein:
+     * 1000 Seiten a 100 Datensaetze = 100.000 Stueck. Pro Operation per
+     * static_params "_max_pages" aenderbar.
      */
-    private const MAX_PAGES = 200;
+    private const MAX_PAGES = 1000;
 
     public function read(string $objectKey, array $params = []): iterable
     {
@@ -239,11 +240,13 @@ final class GenericHttpConnector implements ConnectorInterface
         $offsetByPage = ($operation->staticParams['_offset_mode'] ?? '') === 'page';
         $nextPageParams = ['offset' => $offsetByPage ? 1 : 0];
         $page = 0;
+        $maxPages = max(1, (int) ($operation->staticParams['_max_pages'] ?? self::MAX_PAGES));
+        $seenCursors = [];
 
         do {
             $page++;
-            if ($page > self::MAX_PAGES) {
-                throw new \RuntimeException("Lesen von \"{$objectKey}\" abgebrochen: mehr als " . self::MAX_PAGES . ' Seiten (moeglicher Pagination-Fehler).');
+            if ($page > $maxPages) {
+                throw new \RuntimeException("Lesen von \"{$objectKey}\" abgebrochen: mehr als {$maxPages} Seiten (moeglicher Pagination-Fehler).");
             }
 
             $requestParams = array_merge($params, $nextPageParams);
@@ -309,6 +312,10 @@ final class GenericHttpConnector implements ConnectorInterface
                     if (is_array($pageInfo) && !empty($pageInfo['hasNextPage'])) {
                         $cursor = (string) ($pageInfo['endCursor'] ?? '');
                         if ($cursor !== '') {
+                            if (isset($seenCursors[$cursor])) {
+                                throw new \RuntimeException("Lesen von \"{$objectKey}\" abgebrochen: Pagination-Cursor wiederholt sich (Seite {$page}).");
+                            }
+                            $seenCursors[$cursor] = true;
                             $hasNextPage = true;
                             $nextPageParams = ['cursor' => $cursor];
                         }
