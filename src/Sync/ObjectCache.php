@@ -139,12 +139,13 @@ final class ObjectCache
         $stmt = $this->pdo->prepare('SELECT external_id, data FROM connect_object_records WHERE connection_id = :connection_id AND object_key = :object_key');
         $stmt->execute(['connection_id' => $connectionId, 'object_key' => $objectKey]);
         $out = [];
-        foreach ($stmt->fetchAll() as $record) {
+        while (($record = $stmt->fetch()) !== false) {
             $data = json_decode((string) $record['data'], true);
             if (is_array($data)) {
                 $out[(string) $record['external_id']] = $data;
             }
         }
+        $stmt->closeCursor();
 
         return $out;
     }
@@ -467,13 +468,16 @@ final class ObjectCache
         $stmt->execute(['connection_id' => $connectionId, 'object_key' => $objectKey]);
 
         $rows = [];
-        foreach ($stmt->fetchAll() as $record) {
+        // Zeilenweise statt fetchAll(): sonst liegen Rohtext und dekodierte Daten
+        // gleichzeitig im Speicher (bei grossen Katalogen > memory_limit).
+        while (($record = $stmt->fetch()) !== false) {
             $decoded = json_decode((string) $record['data'], true);
             $rows[] = is_array($decoded) ? $decoded + [
                 '_fetched_at' => $record['fetched_at'],
                 '_status' => $record['status'],
             ] : [];
         }
+        $stmt->closeCursor();
 
         return $rows;
     }
