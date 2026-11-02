@@ -242,6 +242,7 @@ final class GenericHttpConnector implements ConnectorInterface
         $page = 0;
         $maxPages = max(1, (int) ($operation->staticParams['_max_pages'] ?? self::MAX_PAGES));
         $seenCursors = [];
+        $seenPages = [];
 
         do {
             $page++;
@@ -345,6 +346,16 @@ final class GenericHttpConnector implements ConnectorInterface
             if (!$hasNextPage && $pageSize > 0 && is_array($rows) && count($rows) >= $pageSize) {
                 $hasNextPage = true;
                 $nextPageParams = ['offset' => (int) ($requestParams['offset'] ?? 0) + ($offsetByPage ? 1 : $pageSize)];
+            }
+
+            // Offset-Pagination, die der Server ignoriert (oder die "_offset_mode" nicht trifft):
+            // dieselbe Seite kommt immer wieder. Sofort abbrechen statt Hunderte Seiten zu lesen.
+            if ($hasNextPage && is_array($rows) && $rows !== []) {
+                $pageHash = md5(json_encode($rows) ?: serialize($rows));
+                if (isset($seenPages[$pageHash])) {
+                    throw new \RuntimeException("Lesen von \"{$objectKey}\" abgebrochen: Seite {$page} ist identisch mit einer frueheren Seite (offset/page-Parameter wirkt nicht, siehe Operation-Einstellungen).");
+                }
+                $seenPages[$pageHash] = true;
             }
 
             foreach ($rows as $row) {
