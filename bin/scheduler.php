@@ -36,6 +36,9 @@ if (PHP_SAPI !== 'cli') {
     die('Nur per CLI ausfuehrbar.');
 }
 
+// Die CLI-php.ini (Plesk) hat 128M, grosse Kataloge (Shopify-Produkte) brauchen mehr.
+ini_set('memory_limit', '2G');
+
 require dirname(__DIR__) . '/vendor/autoload.php';
 
 use Connect\Config;
