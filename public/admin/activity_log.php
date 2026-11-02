@@ -69,9 +69,50 @@ $limit = 200;
 // "SQLSTATE[HY093]: Invalid parameter number" (live auf dem Server
 // beobachtet, lokal mit emulierten Prepares nicht reproduzierbar).
 // -----------------------------------------------------------------------
-$shopCondition1 = $shopFilter !== '' ? 'WHERE shop = :shop1' : '';
-$shopCondition2 = $shopFilter !== '' ? 'WHERE m.shop = :shop2' : '';
-$shopCondition3 = $shopFilter !== '' ? 'WHERE shop = :shop3' : '';
+// Filter nach Status und Art: nur Werte aus der Whitelist, direkt als Literal im SQL (kein
+// Nutzer-Text). Der Filter steckt in jedem der drei Zweige, nicht in einer aeusseren Query --
+// sonst muesste MariaDB 5.5 die ganze Union samt Request/Response-Texten zwischenspeichern.
+$statusOptions = ['' => 'alle', 'error' => 'nur Fehler', 'problem' => 'Fehler und Teilweise', 'success' => 'nur Erfolg'];
+$categoryOptions = ['' => 'alle', 'Produkt-Import' => 'Produkt-Import', 'Lagerbestand' => 'Lagerbestand', 'Preis' => 'Preis',
+    'Übersetzung' => 'Übersetzung', 'Sync-Lauf' => 'Sync-Lauf', 'Webhook' => 'Webhook'];
+$statusFilter = (string) ($_GET['status'] ?? '');
+if (!isset($statusOptions[$statusFilter])) {
+    $statusFilter = '';
+}
+$categoryFilter = (string) ($_GET['category'] ?? '');
+if (!isset($categoryOptions[$categoryFilter])) {
+    $categoryFilter = '';
+}
+
+$statusSql = match ($statusFilter) {
+    'error' => "status = 'error'",
+    'problem' => "status IN ('error', 'partial')",
+    'success' => "status IN ('success', 'processed')",
+    default => '',
+};
+$activityCategorySql = match ($categoryFilter) {
+    '' => '',
+    'Produkt-Import' => "operation LIKE 'create\\_%'",
+    'Lagerbestand' => "operation = 'stock_update'",
+    'Preis' => "operation = 'update_price'",
+    'Übersetzung' => "operation = 'translate'",
+    default => '1 = 0', // Sync-Lauf/Webhook: nicht in diesem Zweig
+};
+
+$where1 = array_filter([$shopFilter !== '' ? 'shop = :shop1' : '', $statusSql, $activityCategorySql]);
+$where2 = array_filter([
+    $shopFilter !== '' ? 'm.shop = :shop2' : '',
+    $statusSql !== '' ? 'r.' . $statusSql : '',
+    in_array($categoryFilter, ['', 'Sync-Lauf'], true) ? '' : '1 = 0',
+]);
+$where3 = array_filter([
+    $shopFilter !== '' ? 'shop = :shop3' : '',
+    $statusSql,
+    in_array($categoryFilter, ['', 'Webhook'], true) ? '' : '1 = 0',
+]);
+$shopCondition1 = $where1 !== [] ? 'WHERE ' . implode(' AND ', $where1) : '';
+$shopCondition2 = $where2 !== [] ? 'WHERE ' . implode(' AND ', $where2) : '';
+$shopCondition3 = $where3 !== [] ? 'WHERE ' . implode(' AND ', $where3) : '';
 
 // COLLATE utf8mb4_unicode_ci auf jede echte Text-Spalte/jeden Ausdruck: die
 // drei Quelltabellen stammen aus verschiedenen, ueber die Zeit gewachsenen
@@ -189,10 +230,26 @@ require dirname(__DIR__) . '/app/_header.php';
                             <?php endforeach; ?>
                         </select>
                     </div>
+                    <div class="col-auto">
+                        <label class="form-label">Status</label>
+                        <select name="status" class="form-select" onchange="this.form.submit()">
+                            <?php foreach ($statusOptions as $value => $label): ?>
+                                <option value="<?php echo htmlspecialchars($value); ?>" <?php echo $statusFilter === $value ? 'selected' : ''; ?>><?php echo htmlspecialchars($label); ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="col-auto">
+                        <label class="form-label">Art</label>
+                        <select name="category" class="form-select" onchange="this.form.submit()">
+                            <?php foreach ($categoryOptions as $value => $label): ?>
+                                <option value="<?php echo htmlspecialchars($value); ?>" <?php echo $categoryFilter === $value ? 'selected' : ''; ?>><?php echo htmlspecialchars($label); ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
                 </form>
             </div>
             <?php if (count($entries) === 0): ?>
-                <div class="card-body text-secondary">Noch nichts protokolliert<?php echo $shopFilter !== '' ? ' für "' . htmlspecialchars($shopFilter) . '"' : ''; ?>.</div>
+                <div class="card-body text-secondary">Keine Einträge für diese Auswahl<?php echo $shopFilter !== '' ? ' (' . htmlspecialchars($shopFilter) . ')' : ''; ?>.</div>
             <?php else: ?>
                 <div class="table-responsive">
                     <table class="table table-vcenter card-table">
