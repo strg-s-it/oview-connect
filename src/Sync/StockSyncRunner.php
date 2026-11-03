@@ -297,6 +297,11 @@ final class StockSyncRunner
             }
             // Sicherheitsbestand (Migration 0087): Shopify zeigt Kassenbestand minus Puffer
             $sourceQuantity = ShopStockRules::shopifyQuantity((int) $sourceRecord[$sourceStockField->key], $safetyBuffer, $direction);
+            // Shopify kann negativ sein (ueberverkauft), helloCash nicht (HTTP 422 stock_change_zero
+            // bei Abbuchung von leerem Bestand) -> fuer helloCash als Ziel nie unter 0 setzen
+            if (!$destIsShopify) {
+                $sourceQuantity = max(0, $sourceQuantity);
+            }
 
             $destQuantityKnown = array_key_exists($destStockField->key, $destRecord) && $destRecord[$destStockField->key] !== null;
             $currentDestQuantity = $destQuantityKnown ? (int) $destRecord[$destStockField->key] : null;
@@ -336,6 +341,9 @@ final class StockSyncRunner
             $sourceRecord = $liveSource;
             $destRecord = $liveDest;
             $sourceQuantity = ShopStockRules::shopifyQuantity((int) $liveSource[$sourceStockField->key], $safetyBuffer, $direction);
+            if (!$destIsShopify) {
+                $sourceQuantity = max(0, $sourceQuantity);
+            }
             $destQuantityKnown = array_key_exists($destStockField->key, $liveDest) && $liveDest[$destStockField->key] !== null;
             $currentDestQuantity = $destQuantityKnown ? (int) $liveDest[$destStockField->key] : null;
             if ($currentDestQuantity !== null && $sourceQuantity === $currentDestQuantity) {
