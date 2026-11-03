@@ -38,6 +38,7 @@ return [
     ['link', 'shops.php', 'Shops'],
     ['group', 'Händler', [
         ['privacy_requests.php', 'Datenschutz'],
+        ['export.php', 'Export'],
         ['messages.php', 'Nachrichten'],
         ['transition.php', 'Umstieg'],
         ['wishes.php', 'Wünsche' . ($pendingWishes > 0 ? ' (' . $pendingWishes . ' zu prüfen)' : '')],

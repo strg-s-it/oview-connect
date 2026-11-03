@@ -52,6 +52,12 @@ final class MerchantDirectory
     {
     }
 
+    /** Shopify-Token eines Shops der alten Welt (nur fuer Abfragen, nie anzeigen). Vorher all() aufrufen. */
+    public function legacyToken(string $shop): ?string
+    {
+        return $this->legacyTokens[$shop] ?? null;
+    }
+
     /** Fehler beim Lesen der alten Welt (dann fehlen deren Shops in der Liste). */
     public function legacyError(): ?string
     {
