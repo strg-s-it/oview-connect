@@ -319,10 +319,11 @@ final class DocumentPipeline
             $notes[] = 'Betrags-Kontrolle übersprungen (Feld "total_price" nicht verfügbar).';
         }
 
+        $addressNote = null;
         if ($profile->customerObjectKey !== null) {
             try {
                 $record['target_customer_id'] = $this->resolveCustomer($targetConnector, $profile, $record, $dryRun, $notes,
-                    ($shopRow['invoice_customer_match'] ?? '') === InvoiceService::CUSTOMER_MATCH_EMAIL);
+                    ($shopRow['invoice_customer_match'] ?? '') === InvoiceService::CUSTOMER_MATCH_EMAIL, $addressNote);
             } catch (\Throwable $e) {
                 $notes[] = 'Kunde: ' . $e->getMessage();
             }
@@ -330,6 +331,11 @@ final class DocumentPipeline
 
         $out['record'] = $record;
         $out['data'] = $this->translate((int) $template['id'], (int) $template['source_object_id'], $targetObjectId, $record, $mapping);
+        if ($addressNote !== null) {
+            // Kunde konnte nicht angelegt werden (Land): Adresse ins Bemerkungsfeld, damit sie nicht verloren geht
+            $existing = trim((string) ($out['data']['text'] ?? ''));
+            $out['data']['text'] = ($existing !== '' ? $existing . ' | ' : '') . $addressNote;
+        }
         $out['notes'] = $notes;
 
         return $out;
@@ -345,7 +351,7 @@ final class DocumentPipeline
      * @param array<string, mixed> $record aufbereitete Bestellung
      * @param list<string> $notes
      */
-    private function resolveCustomer(ConnectorInterface $targetConnector, DocumentProfile $profile, array $record, bool $dryRun, array &$notes, bool $emailOnly = false): int|string|null
+    private function resolveCustomer(ConnectorInterface $targetConnector, DocumentProfile $profile, array $record, bool $dryRun, array &$notes, bool $emailOnly = false, ?string &$addressNote = null): int|string|null
     {
         $objectKey = (string) $profile->customerObjectKey;
         $email = trim((string) ($record['email'] ?? ''));
@@ -418,8 +424,9 @@ final class DocumentPipeline
             // API nahm jedes Land. Mit einer verstaendlichen Meldung statt "country_code field is required".
             $country = strtoupper(trim((string) ($record['country'] ?? '')));
             if (str_contains($created->message, 'country_code') && $country !== '' && !in_array(strtolower($country), InvoiceService::HELLOCASH_COUNTRIES, true)) {
+                $addressNote = self::addressNote($record);
                 $notes[] = 'Kein Kunde angelegt: Das Land "' . $country . '" wird von helloCash für neue Kunden nicht unterstützt (möglich: '
-                    . strtoupper(implode(', ', InvoiceService::HELLOCASH_COUNTRIES)) . '). Die Rechnung wurde ohne Kunden erstellt.';
+                    . strtoupper(implode(', ', InvoiceService::HELLOCASH_COUNTRIES)) . '). Die Rechnung wurde ohne Kunden erstellt, die Adresse steht im Bemerkungsfeld.';
                 return null;
             }
             $notes[] = 'Kunde konnte nicht angelegt werden: ' . $created->message;
@@ -429,6 +436,21 @@ final class DocumentPipeline
         $newId = GenericHttpConnector::extractByPath($created->responseData, $profile->customerCreatedIdPath);
 
         return $newId !== null && $newId !== '' ? $normalizeId($newId) : null;
+    }
+
+    /**
+     * Kundenadresse als einzeiliger Text fuers Bemerkungsfeld, z.B.
+     * "Kunde: Max Muster, Hauptstr. 1, 1234 Luxemburg, LU".
+     *
+     * @param array<string, mixed> $record aufbereitete Bestellung
+     */
+    private static function addressNote(array $record): string
+    {
+        $get = static fn (string $key): string => trim((string) ($record[$key] ?? ''));
+        $cityLine = trim($get('zip') . ' ' . $get('city'));
+        $parts = array_filter([$get('customer_full_name'), $get('address1'), $cityLine, $get('country')], static fn (string $part): bool => $part !== '');
+
+        return 'Kunde: ' . implode(', ', $parts);
     }
 
     /**
