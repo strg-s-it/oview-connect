@@ -230,6 +230,28 @@ final class OutputTranslator
             $result = $changed ? implode(' · ', $pieces) : null;
         }
 
+        // Fuehrendes Zeichen ("✓ Text", "· Text", "– Text"): Rest einzeln uebersetzen
+        if ($result === null && $patterns && preg_match('/^([✓✔•·–—→←+]\s*)(.+)$/u', $norm, $m) === 1) {
+            $rest = self::translate($m[2]);
+            $result = $rest !== null ? $m[1] . $rest : null;
+        }
+
+        // Mehrere Saetze in einem Textblock: jeder Satz einzeln
+        if ($result === null && $patterns) {
+            $sentences = preg_split('/(?<=[.!?…])\s+/u', $norm) ?: [];
+            if (count($sentences) > 1) {
+                $changed = false;
+                foreach ($sentences as $k => $sentence) {
+                    $english = self::translate($sentence);
+                    if ($english !== null) {
+                        $sentences[$k] = $english;
+                        $changed = true;
+                    }
+                }
+                $result = $changed ? implode(' ', $sentences) : null;
+            }
+        }
+
         return self::$cache[$cacheKey] = $result;
     }
 
