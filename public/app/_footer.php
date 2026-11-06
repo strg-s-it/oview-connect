@@ -19,7 +19,7 @@ declare(strict_types=1);
             </div>
         </div>
     </div>
-    <button type="button" id="connect-scroll-top" class="btn btn-primary btn-icon" title="Nach oben" aria-label="Nach oben" hidden>
+    <button type="button" id="connect-scroll-top" class="btn btn-primary btn-icon" title="<?php echo htmlspecialchars(t('Nach oben')); ?>" aria-label="<?php echo htmlspecialchars(t('Nach oben')); ?>" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5"/><path d="M6 11l6-6 6 6"/></svg>
     </button>
     <style>

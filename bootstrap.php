@@ -17,6 +17,7 @@ declare(strict_types=1);
  */
 
 require __DIR__ . '/vendor/autoload.php';
+require_once __DIR__ . '/src/I18n/functions.php'; // t() fuer Uebersetzungen, siehe Connect\I18n\Lang
 
 use Connect\AppContext;
 use Connect\Config;
@@ -84,9 +85,15 @@ $shop = $_GET['shop'] ?? null;
 if (!is_string($shop) || $shop === '') {
     \Connect\Http\ErrorPage::show(
         400,
-        'Shop nicht angegeben',
-        'Diese Seite muss über die oView-App in Shopify geöffnet werden.'
+        t('Shop nicht angegeben'),
+        t('Diese Seite muss über die oView-App in Shopify geöffnet werden.')
     );
+}
+
+// Sprache der Oberflaeche (Connect\I18n\Lang): Lesen der Shop-Einstellung braucht keine Anmeldung,
+// damit auch die Fehlerseiten unten in der gewaehlten Sprache erscheinen.
+if (preg_match('/^[a-z0-9][a-z0-9-]*$/', $shop) === 1) {
+    \Connect\I18n\Lang::load($db->pdo(), $shop);
 }
 
 $sig = $_GET['sig'] ?? null;
@@ -169,14 +176,14 @@ if ($sigValid) {
     if ($sig !== null) {
         \Connect\Http\ErrorPage::show(
             401,
-            'Zugangslink abgelaufen',
-            'Der Link ist ungültig oder nicht mehr gültig. Bitte öffne die App erneut über Shopify.'
+            t('Zugangslink abgelaufen'),
+            t('Der Link ist ungültig oder nicht mehr gültig. Bitte öffne die App erneut über Shopify.')
         );
     }
     \Connect\Http\ErrorPage::show(
         401,
-        'Nicht angemeldet',
-        'Deine Sitzung ist abgelaufen oder gehört zu einem anderen Shop. Bitte öffne die App erneut über Shopify.'
+        t('Nicht angemeldet'),
+        t('Deine Sitzung ist abgelaufen oder gehört zu einem anderen Shop. Bitte öffne die App erneut über Shopify.')
     );
 }
 
@@ -201,10 +208,10 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && !$requestProvesAccess) {
         );
         \Connect\Http\ErrorPage::show(
             403,
-            'Anfrage abgelehnt',
+            t('Anfrage abgelehnt'),
             'Aus Sicherheitsgründen wurde die Anfrage nicht ausgeführt (Sicherheitstoken fehlt oder ist abgelaufen). '
             . 'Bitte lade die Seite neu und versuche es noch einmal.',
-            ['label' => 'Seite neu laden', 'url' => \Connect\Http\ErrorPage::selfUrl()]
+            ['label' => t('Seite neu laden'), 'url' => \Connect\Http\ErrorPage::selfUrl()]
         );
     }
 }
@@ -223,6 +230,18 @@ $GLOBALS['connect_ct'] = $cookieless
 // Erlaubt das Einbetten in Shopify Admin (wie die alte Welt in index.php) --
 // ohne diesen Header wuerde der Browser die Seite im iframe blockieren.
 header('Content-Security-Policy: frame-ancestors https://' . preg_replace('/[^a-zA-Z0-9\-]/', '', $shop) . '.myshopify.com https://admin.shopify.com;');
+
+// Sprachwechsel per Flagge (?lang=de|en, Connect\I18n\Lang::switcherHtml): speichern und auf dieselbe Seite
+// ohne den Parameter zurueck. Nur GET und nur nach erfolgreicher Anmeldung (steht weiter oben).
+$langRequested = $_GET['lang'] ?? null;
+if (is_string($langRequested) && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET' && \Connect\I18n\Lang::isValid($langRequested)) {
+    \Connect\I18n\Lang::save($db->pdo(), $shop, $langRequested);
+    $langParams = $_GET;
+    unset($langParams['lang']);
+    $langPage = basename((string) parse_url((string) ($_SERVER['REQUEST_URI'] ?? ''), PHP_URL_PATH));
+    header('Location: ' . \Connect\Http\Url::withToken(($langPage !== '' ? $langPage : 'dashboard.php') . '?' . http_build_query($langParams)));
+    exit;
+}
 
 // Erstes Fenster (app/welcome.php): Software waehlen und Rechtstexten zustimmen, bevor
 // irgendeine andere Merchant-Seite erreichbar ist (Connect\Setup\WelcomeGate).

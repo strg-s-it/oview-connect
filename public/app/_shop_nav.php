@@ -94,15 +94,18 @@ $previewSuffix = isset($_GET['preview']) ? '&preview=1' : '';
 
 // Merchant-Leiste (seit 2026-10-05): "Connections" ist kein eigener Punkt mehr, die Technik
 // steht unter "Status" (connections.php bleibt von dort fuer "Schlüssel ändern" erreichbar).
+// Beschriftungen ueber Connect\I18n\Lang (die Funktion t() kann hier noch fehlen, sie kommt erst mit dem Header)
+$tr = static fn (string $german): string => \Connect\I18n\Lang::t($german);
+
 return [
-    ['dashboard.php?shop=' . urlencode($shop) . $previewSuffix, 'Übersicht'],
-    ['stock.php?shop=' . urlencode($shop) . $previewSuffix, 'Lagerbestand'],
-    ['invoices.php?shop=' . urlencode($shop) . $previewSuffix, 'Rechnungen'],
-    ['products.php?shop=' . urlencode($shop) . $previewSuffix, 'Produkte'],
-    ['prices.php?shop=' . urlencode($shop) . $previewSuffix, 'Preise'],
-    ['sync_mappings.php?shop=' . urlencode($shop) . $previewSuffix, 'Einstellungen'],
-    ['status.php?shop=' . urlencode($shop) . $previewSuffix, 'Status'],
-    ['billing.php?shop=' . urlencode($shop) . $previewSuffix, 'Abo'],
-    ['wishes.php?shop=' . urlencode($shop) . $previewSuffix, 'Wünsche'],
-    ['faq.php?shop=' . urlencode($shop) . $previewSuffix, 'FAQ'],
+    ['dashboard.php?shop=' . urlencode($shop) . $previewSuffix, $tr('Übersicht')],
+    ['stock.php?shop=' . urlencode($shop) . $previewSuffix, $tr('Lagerbestand')],
+    ['invoices.php?shop=' . urlencode($shop) . $previewSuffix, $tr('Rechnungen')],
+    ['products.php?shop=' . urlencode($shop) . $previewSuffix, $tr('Produkte')],
+    ['prices.php?shop=' . urlencode($shop) . $previewSuffix, $tr('Preise')],
+    ['sync_mappings.php?shop=' . urlencode($shop) . $previewSuffix, $tr('Einstellungen')],
+    ['status.php?shop=' . urlencode($shop) . $previewSuffix, $tr('Status')],
+    ['billing.php?shop=' . urlencode($shop) . $previewSuffix, $tr('Abo')],
+    ['wishes.php?shop=' . urlencode($shop) . $previewSuffix, $tr('Wünsche')],
+    ['faq.php?shop=' . urlencode($shop) . $previewSuffix, $tr('FAQ')],
 ];

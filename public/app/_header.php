@@ -39,6 +39,8 @@ declare(strict_types=1);
  * Phase 1 waere das Overengineering. Einfache PHP-Includes reichen.
  */
 
+require_once dirname(__DIR__, 2) . '/src/I18n/functions.php';
+
 // Name, Logo, Farbe, Schrift aus Admin -> Branding (Migration 0083), sonst Standard
 $brand = \Connect\Setup\Branding::load(
     isset($pdo) && $pdo instanceof \PDO ? $pdo : (isset($app) && isset($app->pdo) ? $app->pdo : null),
@@ -78,7 +80,11 @@ if (in_array($activeAdminScript, ['connector_types.php', 'connector_type_edit.ph
 // Default nur fuer Merchant-Seiten relevant (Admin-Seiten setzen $topRightHtml
 // immer selbst mit E-Mail+Logout) -- zeigt den Shop-Namen, damit erkennbar
 // ist, welcher Shop gerade angezeigt wird.
-$topRightHtml = $topRightHtml ?? ('<span class="text-secondary me-3">' . htmlspecialchars($app->shop ?? '') . '</span><span class="badge bg-yellow-lt">Beta</span>');
+// Flagge zum Sprachwechsel (Connect\I18n\Lang): nur in der echten Merchant-Ansicht, nicht in der Admin-Vorschau
+$topRightHtml = $topRightHtml ?? (
+    (isset($app->shop) && !isset($_GET['preview']) ? \Connect\I18n\Lang::switcherHtml() : '')
+    . '<span class="text-secondary me-1">' . htmlspecialchars($app->shop ?? '') . '</span><span class="badge bg-yellow-lt">Beta</span>'
+);
 
 // Shop-Leiste ($navItems, siehe _shop_nav.php): aktive Seite. Detailseiten zaehlen zur
 // Seite, von der aus man sie oeffnet (z.B. mapping_edit.php -> Mappings).
@@ -117,7 +123,7 @@ if (count($navItems) > 0 && count($adminNavItems) > 0 && isset($pdo) && $pdo ins
 $currentShopName = (string) ($app->shop ?? ($_GET['shop'] ?? ''));
 ?>
 <!DOCTYPE html>
-<html lang="de">
+<html lang="<?php echo htmlspecialchars(\Connect\I18n\Lang::code()); ?>">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">

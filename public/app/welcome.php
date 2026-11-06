@@ -42,7 +42,7 @@ if (!$wizard->isAvailable()) {
         header('Location: ' . \Connect\Http\Url::withToken($dashboardUrl)); // z.B. "Assistent starten" vor Migration 0078
         exit;
     }
-    \Connect\Http\ErrorPage::show(503, 'Einrichtung wird vorbereitet', 'oView Connect wird gerade aktualisiert. Bitte versuche es in ein paar Minuten noch einmal.');
+    \Connect\Http\ErrorPage::show(503, t('Einrichtung wird vorbereitet'), t('oView Connect wird gerade aktualisiert. Bitte versuche es in ein paar Minuten noch einmal.'));
 }
 
 // Einrichtung erneut durchgehen (eingerichteter Shop, Link in Einstellungen/Status): mit den
@@ -110,7 +110,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'wizar
             $accepted = array_keys(is_array($_POST['accept'] ?? null) ? $_POST['accept'] : []);
             $missing = array_diff(array_keys($pending), $accepted);
             if ($missing !== []) {
-                $flashMessage = 'Bitte noch zustimmen: ' . implode(', ', array_map(static fn (string $k): string => LegalTexts::DOCS[$k][0], $missing)) . '.';
+                $flashMessage = t('Bitte noch zustimmen:') . ' ' . implode(', ', array_map(static fn (string $k): string => t(LegalTexts::DOCS[$k][0]), $missing)) . '.';
                 break;
             }
             foreach ($pending as $docKey => $doc) {
@@ -123,7 +123,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'wizar
             $typeId = (int) ($_POST['connector_type_id'] ?? 0);
             $typeIds = array_map('intval', array_column(TargetSystemSetup::availableTypes($pdo, $shop), 'id'));
             if (!in_array($typeId, $typeIds, true)) {
-                $flashMessage = 'Bitte wähle deine Software aus.';
+                $flashMessage = t('Bitte wähle deine Software aus.');
                 break;
             }
             $wizard->remember($shop, ['type_id' => $typeId]);
@@ -166,7 +166,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'wizar
                 $redirect($stepUrl($nextStepAfter('connect')));
             }
             $flashMessage = $result['ok']
-                ? 'Die Verbindung hat noch nicht geklappt. Bitte prüfe den Schlüssel und versuche es noch einmal.'
+                ? t('Die Verbindung hat noch nicht geklappt. Bitte prüfe den Schlüssel und versuche es noch einmal.')
                 : $result['message'];
             $connectFailed = $result['ok'];
             break;
@@ -174,7 +174,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'wizar
         case 'compare':
             $compare = (string) ($_POST['compare'] ?? '');
             if (!isset(SetupWizard::COMPARE_LABELS[$compare])) {
-                $flashMessage = 'Bitte wähle aus, woran wir deine Produkte erkennen sollen.';
+                $flashMessage = t('Bitte wähle aus, woran wir deine Produkte erkennen sollen.');
                 break;
             }
             $wizard->remember($shop, ['compare' => $compare]);
@@ -183,7 +183,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'wizar
         case 'stock':
             $stock = (string) ($_POST['stock'] ?? '');
             if (!in_array($stock, ['yes', 'no'], true)) {
-                $flashMessage = 'Bitte wähle Ja oder Nein.';
+                $flashMessage = t('Bitte wähle Ja oder Nein.');
                 break;
             }
             $wizard->remember($shop, ['stock' => $stock]);
@@ -194,20 +194,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'wizar
             $locations = $wizard->shopifyLocations($shop);
             $location = (string) ($_POST['location'] ?? '');
             if (!in_array($lead, ['target', 'shopify'], true)) {
-                $flashMessage = 'Bitte wähle, wo du deine Lagerbestände änderst.';
+                $flashMessage = t('Bitte wähle, wo du deine Lagerbestände änderst.');
                 break;
             }
             // Der Standort wird in BEIDE Richtungen gebraucht: Shopify liefert den Bestand
             // je Standort, ohne Standort kennt oView den Shopify-Bestand nicht.
             if ($locations === []) {
                 // Direkt nach der Installation sind die Standorte noch nicht geladen -- nicht ohne Standort weiter
-                $flashMessage = 'Die Shopify-Standorte werden gerade geladen. Bitte gleich noch einmal auf „Weiter“ klicken.';
+                $flashMessage = t('Die Shopify-Standorte werden gerade geladen. Bitte gleich noch einmal auf „Weiter“ klicken.');
                 break;
             }
             if (count($locations) === 1) {
                 $location = $locations[0]['id'];
             } elseif (!in_array($location, array_column($locations, 'id'), true)) {
-                $flashMessage = 'Bitte wähle den Shopify-Standort.';
+                $flashMessage = t('Bitte wähle den Shopify-Standort.');
                 break;
             }
             $wizard->remember($shop, ['lead' => $lead, 'location' => $location]);
@@ -217,7 +217,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'wizar
             $invoice = (string) ($_POST['invoice'] ?? '');
             $allowed = $wizard->supportsStockOnly($shop) ? ['invoice', 'stockonly', 'none'] : ['invoice', 'none'];
             if (!in_array($invoice, $allowed, true)) {
-                $flashMessage = 'Bitte wähle, was bei einer bezahlten Bestellung passieren soll.';
+                $flashMessage = t('Bitte wähle, was bei einer bezahlten Bestellung passieren soll.');
                 break;
             }
             $wizard->remember($shop, ['invoice' => $invoice, 'mail' => $invoice === 'invoice' && isset($_POST['mail']) ? 1 : 0]);
@@ -226,7 +226,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'wizar
         case 'prices':
             $prices = (string) ($_POST['prices'] ?? '');
             if (!in_array($prices, ['0', '1'], true)) {
-                $flashMessage = 'Bitte wähle Brutto oder Netto.';
+                $flashMessage = t('Bitte wähle Brutto oder Netto.');
                 break;
             }
             $wizard->remember($shop, ['prices' => $prices]);
@@ -237,8 +237,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'wizar
                 $redirect($stepUrl($wizard->firstOpenStep($shop)));
             }
             $notes = $wizard->complete($shop, new ShopActivations($pdo, $app->crypto, $app->config));
-            $okText = $rerun ? 'Deine Änderungen sind übernommen.' : 'oView ist gestartet. Der erste Abgleich läuft in den nächsten Minuten.';
-            $_SESSION['connect_flash'] = $notes === [] ? ['success', $okText] : ['warning', $okText . ' Aber: ' . implode(' ', $notes)];
+            $okText = $rerun ? t('Deine Änderungen sind übernommen.') : t('oView ist gestartet. Der erste Abgleich läuft in den nächsten Minuten.');
+            $_SESSION['connect_flash'] = $notes === [] ? ['success', $okText] : ['warning', $okText . ' ' . t('Aber:') . ' ' . implode(' ', $notes)];
             unset($_SESSION[$rerunKey]);
             $redirect($dashboardUrl);
     }
@@ -263,7 +263,7 @@ foreach ($types as $type) {
     $typeById[(int) $type['id']] = $type;
 }
 $chosenType = $typeById[(int) ($answers['type_id'] ?? $shopRow['target_type_id'] ?? 0)] ?? null;
-$targetName = (string) ($shopRow['target_name'] ?? ($chosenType['name'] ?? 'deiner Software'));
+$targetName = (string) ($shopRow['target_name'] ?? ($chosenType['name'] ?? t('deiner Software')));
 
 $visible = $wizard->visibleSteps($shop);
 $position = array_search($step, $visible, true);
@@ -284,7 +284,7 @@ $choice = static function (string $name, string $value, ?string $current, string
         . '<span class="wz-d">' . htmlspecialchars($desc) . '</span></span></span></label>';
 };
 
-$pageTitle = 'Willkommen';
+$pageTitle = t('Willkommen');
 $navItems = [];
 require __DIR__ . '/_header.php';
 ?>
@@ -328,7 +328,7 @@ require __DIR__ . '/_header.php';
     <div class="d-flex justify-content-between align-items-center gap-2">
         <span class="fw-bold d-flex align-items-center"><?php echo $brand->logoHtml(28); ?></span>
         <?php if ($rerun): ?>
-            <a href="welcome.php<?php echo htmlspecialchars($q); ?>&amp;cancel=1" class="small">Abbrechen, nichts ändern</a>
+            <a href="welcome.php<?php echo htmlspecialchars($q); ?>&amp;cancel=1" class="small"><?php echo htmlspecialchars(t('Abbrechen, nichts ändern')); ?></a>
         <?php endif; ?>
     </div>
     <?php if (!$legalOnly): ?>
@@ -336,7 +336,7 @@ require __DIR__ . '/_header.php';
             <div class="wz-steps" aria-hidden="true">
                 <?php foreach ($phases as $i => $phase): ?><span class="<?php echo $i <= $phaseIndex ? 'on' : ''; ?>"></span><?php endforeach; ?>
             </div>
-            <div class="wz-label">Schritt <?php echo $phaseIndex + 1; ?> von <?php echo count($phases); ?> · <?php echo htmlspecialchars($phases[$phaseIndex]); ?></div>
+            <div class="wz-label"><?php echo htmlspecialchars(t('Schritt {n} von {m}', ['n' => $phaseIndex + 1, 'm' => count($phases)])); ?> · <?php echo htmlspecialchars(t($phases[$phaseIndex])); ?></div>
         </div>
     <?php endif; ?>
 
@@ -347,11 +347,11 @@ require __DIR__ . '/_header.php';
     <?php if ($step === 'welcome'): ?>
         <div>
             <?php if ($legalOnly): ?>
-                <h2>Unsere Bedingungen wurden aktualisiert</h2>
-                <p class="lead">Bitte lies die geänderten Texte und stimme zu, dann geht es weiter.</p>
+                <h2><?php echo htmlspecialchars(t('Unsere Bedingungen wurden aktualisiert')); ?></h2>
+                <p class="lead"><?php echo htmlspecialchars(t('Bitte lies die geänderten Texte und stimme zu, dann geht es weiter.')); ?></p>
             <?php else: ?>
-                <h2>Willkommen bei <?php echo htmlspecialchars($brand->name); ?></h2>
-                <p class="lead">oView hält deinen Shopify-Shop und deine Kasse oder Warenwirtschaft automatisch abgestimmt: Lagerbestände, Rechnungen und Produkte. Die Einrichtung dauert etwa drei Minuten, du beantwortest nur ein paar Fragen.</p>
+                <h2><?php echo htmlspecialchars(t('Willkommen bei {name}', ['name' => $brand->name])); ?></h2>
+                <p class="lead"><?php echo htmlspecialchars(t('oView hält deinen Shopify-Shop und deine Kasse oder Warenwirtschaft automatisch abgestimmt: Lagerbestände, Rechnungen und Produkte. Die Einrichtung dauert etwa drei Minuten, du beantwortest nur ein paar Fragen.')); ?></p>
             <?php endif; ?>
         </div>
         <?php if ($pending !== []): ?>
@@ -360,13 +360,13 @@ require __DIR__ . '/_header.php';
                     <div class="wz-legal">
                         <label class="form-check mb-1">
                             <input type="checkbox" name="accept[<?php echo htmlspecialchars($docKey); ?>]" class="form-check-input" required>
-                            <span class="form-check-label"><?php echo htmlspecialchars(LegalTexts::DOCS[$docKey][1]); ?></span>
+                            <span class="form-check-label"><?php echo htmlspecialchars(t(LegalTexts::DOCS[$docKey][1])); ?></span>
                         </label>
                         <?php if (($doc['summary'] ?? '') !== ''): ?>
                             <div class="text-secondary small ms-4"><?php echo htmlspecialchars((string) $doc['summary']); ?></div>
                         <?php endif; ?>
                         <details class="ms-4 mt-1">
-                            <summary class="text-primary small" style="cursor:pointer;"><?php echo htmlspecialchars((string) $doc['title']); ?> lesen</summary>
+                            <summary class="text-primary small" style="cursor:pointer;"><?php echo htmlspecialchars(t('{title} lesen', ['title' => (string) $doc['title']])); ?></summary>
                             <div class="legal-text mt-2 small"><?php echo LegalTexts::render((string) $doc['body']); ?></div>
                         </details>
                     </div>
@@ -376,11 +376,11 @@ require __DIR__ . '/_header.php';
 
     <?php elseif ($step === 'software'): ?>
         <div>
-            <h2>Welche Software nutzt du neben Shopify?</h2>
-            <p class="lead">Mit dieser Software gleicht oView deinen Shop ab.</p>
+            <h2><?php echo htmlspecialchars(t('Welche Software nutzt du neben Shopify?')); ?></h2>
+            <p class="lead"><?php echo htmlspecialchars(t('Mit dieser Software gleicht oView deinen Shop ab.')); ?></p>
         </div>
         <?php if ($types === []): ?>
-            <div class="alert alert-info mb-0">Noch keine Software verfügbar. Bitte schreib uns an office@oview.at.</div>
+            <div class="alert alert-info mb-0"><?php echo htmlspecialchars(t('Noch keine Software verfügbar. Bitte schreib uns an {mail}.', ['mail' => 'office@oview.at'])); ?></div>
         <?php else: ?>
             <div class="wz-choices">
                 <?php foreach ($types as $type): ?>
@@ -394,7 +394,7 @@ require __DIR__ . '/_header.php';
                     ?>
                 <?php endforeach; ?>
             </div>
-            <p class="text-secondary small mb-0">Deine Software ist nicht dabei? Schreib uns an <strong>office@oview.at</strong>, welche du nutzt.</p>
+            <p class="text-secondary small mb-0"><?php echo t('Deine Software ist nicht dabei? Schreib uns an {mail}, welche du nutzt.', ['mail' => '<strong>office@oview.at</strong>']); ?></p>
         <?php endif; ?>
 
     <?php elseif ($step === 'connect'): ?>
@@ -404,17 +404,19 @@ require __DIR__ . '/_header.php';
             && (int) $shopRow['target_type_id'] === (int) $chosenType['id'] && ($shopRow['target_status'] ?? '') === 'active';
         ?>
         <div>
-            <h2><?php echo htmlspecialchars($chosenType['name'] ?? 'Software'); ?> verbinden</h2>
-            <p class="lead">oView braucht deine Zugangsdaten, um Artikel und Lagerstände aus <?php echo htmlspecialchars($chosenType['name'] ?? 'deiner Software'); ?> zu lesen<?php echo $chosenType !== null ? ' und Rechnungen anzulegen' : ''; ?>.</p>
+            <h2><?php echo htmlspecialchars(t('{name} verbinden', ['name' => $chosenType['name'] ?? 'Software'])); ?></h2>
+            <p class="lead"><?php echo htmlspecialchars($chosenType !== null
+            ? t('oView braucht deine Zugangsdaten, um Artikel und Lagerstände aus {name} zu lesen und Rechnungen anzulegen.', ['name' => (string) $chosenType['name']])
+            : t('oView braucht deine Zugangsdaten, um Artikel und Lagerstände aus {name} zu lesen.', ['name' => t('deiner Software')])); ?></p>
         </div>
         <?php if ($chosenType === null): ?>
-            <div class="alert alert-info mb-0">Bitte wähle zuerst deine Software. <a href="<?php echo htmlspecialchars($stepUrl('software')); ?>">Zur Auswahl</a></div>
+            <div class="alert alert-info mb-0"><?php echo htmlspecialchars(t('Bitte wähle zuerst deine Software.')); ?> <a href="<?php echo htmlspecialchars($stepUrl('software')); ?>"><?php echo htmlspecialchars(t('Zur Auswahl')); ?></a></div>
         <?php else: ?>
             <?php if ($alreadyConnected): ?>
-                <div class="alert alert-success mb-0">&#10003; Verbunden mit <?php echo htmlspecialchars((string) $chosenType['name']); ?>. Neue Zugangsdaten kannst du unten eintragen, sonst einfach weiter.</div>
+                <div class="alert alert-success mb-0">&#10003; <?php echo htmlspecialchars(t('Verbunden mit {name}. Neue Zugangsdaten kannst du unten eintragen, sonst einfach weiter.', ['name' => (string) $chosenType['name']])); ?></div>
             <?php endif; ?>
             <?php // Anleitung je Connector Type (Admin -> Connector Type, Migration 0099) ?>
-            <?php echo \Connect\Setup\SetupHelp::details($chosenType['setup_help'] ?? null, 'Wo finde ich die Zugangsdaten für ' . (string) $chosenType['name'] . '?'); ?>
+            <?php echo \Connect\Setup\SetupHelp::details($chosenType['setup_help'] ?? null, t('Wo finde ich die Zugangsdaten für {name}?', ['name' => (string) $chosenType['name']])); ?>
             <div class="d-grid gap-3">
                 <?php foreach ($authFields as $field): ?>
                     <?php if (($field['type'] ?? 'text') === 'hidden'): ?>
@@ -434,7 +436,7 @@ require __DIR__ . '/_header.php';
                 <?php endforeach; ?>
             </div>
             <?php if ($connectFailed || (($shopRow['target_connection_id'] ?? null) !== null && !$alreadyConnected)): ?>
-                <p class="text-secondary small mb-0">Klappt es nicht? Du kannst auch <button type="submit" name="skip" value="1" formnovalidate class="btn btn-link p-0 align-baseline small">ohne erfolgreichen Test weitermachen</button> und die Verbindung später unter Status prüfen.</p>
+                <p class="text-secondary small mb-0"><?php echo t('Klappt es nicht? Du kannst auch {button} und die Verbindung später unter Status prüfen.', ['button' => '<button type="submit" name="skip" value="1" formnovalidate class="btn btn-link p-0 align-baseline small">' . htmlspecialchars(t('ohne erfolgreichen Test weitermachen')) . '</button>']); ?></p>
             <?php endif; ?>
         <?php endif; ?>
 
@@ -446,11 +448,11 @@ require __DIR__ . '/_header.php';
         $icons = ['sku' => 'SKU', 'barcode' => '|||', 'title' => 'Aa'];
         ?>
         <div>
-            <h2>Woran erkennen wir, welche Produkte zusammengehören?</h2>
+            <h2><?php echo htmlspecialchars(t('Woran erkennen wir, welche Produkte zusammengehören?')); ?></h2>
             <?php if ($counts !== null): ?>
-                <p class="lead">Wir haben deine Shopify-Produkte mit den Artikeln in <?php echo htmlspecialchars($targetName); ?> verglichen. So viele passen jeweils zusammen:</p>
+                <p class="lead"><?php echo htmlspecialchars(t('Wir haben deine Shopify-Produkte mit den Artikeln in {name} verglichen. So viele passen jeweils zusammen:', ['name' => $targetName])); ?></p>
             <?php else: ?>
-                <p class="lead">Wir laden gerade deine Artikel aus <?php echo htmlspecialchars($targetName); ?>. Sobald sie da sind, siehst du hier, wie viele zusammenpassen. Du kannst aber schon weitermachen.</p>
+                <p class="lead"><?php echo htmlspecialchars(t('Wir laden gerade deine Artikel aus {name}. Sobald sie da sind, siehst du hier, wie viele zusammenpassen. Du kannst aber schon weitermachen.', ['name' => $targetName])); ?></p>
             <?php endif; ?>
         </div>
         <div class="wz-choices">
@@ -460,13 +462,13 @@ require __DIR__ . '/_header.php';
                     continue; // dieses System kennt den Vergleichswert nicht
                 }
                 $desc = $counts !== null
-                    ? $counts[$role]['matched'] . ' von ' . $counts[$role]['total'] . ' Artikeln gefunden'
-                    : ['sku' => 'Die Artikelnummer, die du in beiden Systemen pflegst.', 'barcode' => 'Der Strichcode auf der Verpackung.', 'title' => 'Nur wenn die Namen überall exakt gleich sind.'][$role];
-                echo $choice('compare', $role, $current, $icons[$role], $label, $desc, $role === $recommended ? 'Empfohlen' : null);
+                    ? t('{a} von {b} Artikeln gefunden', ['a' => $counts[$role]['matched'], 'b' => $counts[$role]['total']])
+                    : ['sku' => t('Die Artikelnummer, die du in beiden Systemen pflegst.'), 'barcode' => t('Der Strichcode auf der Verpackung.'), 'title' => t('Nur wenn die Namen überall exakt gleich sind.')][$role];
+                echo $choice('compare', $role, $current, $icons[$role], t($label), $desc, $role === $recommended ? t('Empfohlen') : null);
                 ?>
             <?php endforeach; ?>
         </div>
-        <p class="text-secondary small mb-0">Artikel ohne Gegenstück siehst du später unter „Produkte“ und kannst sie dort anlegen.</p>
+        <p class="text-secondary small mb-0"><?php echo htmlspecialchars(t('Artikel ohne Gegenstück siehst du später unter „Produkte“ und kannst sie dort anlegen.')); ?></p>
         <?php if ($counts === null): ?>
             <script>
                 // Artikel werden noch geladen: alle 20 s neu laden, solange nichts angeklickt wurde
@@ -480,63 +482,63 @@ require __DIR__ . '/_header.php';
 
     <?php elseif ($step === 'stock'): ?>
         <div>
-            <h2>Sollen die Lagerbestände automatisch abgeglichen werden?</h2>
-            <p class="lead">Dann stimmen die Stückzahlen in Shopify und <?php echo htmlspecialchars($targetName); ?> überein, ohne dass du sie doppelt pflegst.</p>
+            <h2><?php echo htmlspecialchars(t('Sollen die Lagerbestände automatisch abgeglichen werden?')); ?></h2>
+            <p class="lead"><?php echo htmlspecialchars(t('Dann stimmen die Stückzahlen in Shopify und {name} überein, ohne dass du sie doppelt pflegst.', ['name' => $targetName])); ?></p>
         </div>
         <div class="wz-choices">
             <?php
             $stockMinutes = \Connect\Billing\Plans::stockMinutes(\Connect\Billing\Plans::forShop($pdo, $shop));
-            echo $choice('stock', 'yes', $answers['stock'] ?? null, '&#10003;', 'Ja, automatisch abgleichen', $stockMinutes === 60 ? 'oView prüft die Bestände jede Stunde.' : 'oView prüft die Bestände alle ' . $stockMinutes . ' Minuten.');
+            echo $choice('stock', 'yes', $answers['stock'] ?? null, '&#10003;', t('Ja, automatisch abgleichen'), $stockMinutes === 60 ? t('oView prüft die Bestände jede Stunde.') : t('oView prüft die Bestände alle {n} Minuten.', ['n' => $stockMinutes]));
             ?>
-            <?php echo $choice('stock', 'no', $answers['stock'] ?? null, '&ndash;', 'Nein, jetzt nicht', 'Du kannst das jederzeit in den Einstellungen einschalten.'); ?>
+            <?php echo $choice('stock', 'no', $answers['stock'] ?? null, '&ndash;', t('Nein, jetzt nicht'), t('Du kannst das jederzeit in den Einstellungen einschalten.')); ?>
         </div>
 
     <?php elseif ($step === 'stock_lead'): ?>
         <?php $locations = $wizard->shopifyLocations($shop); ?>
         <div>
-            <h2>Wo änderst du deine Lagerbestände?</h2>
-            <p class="lead">Dort, wo du Wareneingänge und Korrekturen einträgst. Das andere System übernimmt die Zahlen.</p>
+            <h2><?php echo htmlspecialchars(t('Wo änderst du deine Lagerbestände?')); ?></h2>
+            <p class="lead"><?php echo htmlspecialchars(t('Dort, wo du Wareneingänge und Korrekturen einträgst. Das andere System übernimmt die Zahlen.')); ?></p>
         </div>
         <div class="wz-choices">
-            <?php echo $choice('lead', 'target', $answers['lead'] ?? null, htmlspecialchars(mb_substr($targetName, 0, 2)), 'In ' . $targetName, 'Shopify übernimmt die Bestände aus ' . $targetName . '.'); ?>
-            <?php echo $choice('lead', 'shopify', $answers['lead'] ?? null, 'S', 'In Shopify', $targetName . ' übernimmt die Bestände aus Shopify.'); ?>
+            <?php echo $choice('lead', 'target', $answers['lead'] ?? null, htmlspecialchars(mb_substr($targetName, 0, 2)), t('In {name}', ['name' => $targetName]), t('Shopify übernimmt die Bestände aus {name}.', ['name' => $targetName])); ?>
+            <?php echo $choice('lead', 'shopify', $answers['lead'] ?? null, 'S', t('In Shopify'), t('{name} übernimmt die Bestände aus Shopify.', ['name' => $targetName])); ?>
         </div>
         <?php if ($locations === []): ?>
             <div class="alert alert-info mb-0">
-                Die Standorte deines Shops werden gerade aus Shopify geladen. Das dauert nur einen Moment, danach kannst du hier den Standort wählen.
+                <?php echo htmlspecialchars(t('Die Standorte deines Shops werden gerade aus Shopify geladen. Das dauert nur einen Moment, danach kannst du hier den Standort wählen.')); ?>
             </div>
             <script>setTimeout(function () { (window.connectReload || function () { location.reload(); })(); }, 6000);</script>
         <?php elseif (count($locations) === 1): ?>
-            <div class="text-secondary small">Dein Shop hat einen Standort: <strong><?php echo htmlspecialchars($locations[0]['name']); ?></strong>. Abgeglichen wird dessen Bestand.</div>
+            <div class="text-secondary small"><?php echo t('Dein Shop hat einen Standort: {name}. Abgeglichen wird dessen Bestand.', ['name' => '<strong>' . htmlspecialchars($locations[0]['name']) . '</strong>']); ?></div>
         <?php else: ?>
             <div id="wz-location">
-                <label class="form-label" for="location">Für welchen Shopify-Standort?</label>
+                <label class="form-label" for="location"><?php echo htmlspecialchars(t('Für welchen Shopify-Standort?')); ?></label>
                 <select id="location" name="location" class="form-select" required>
-                    <option value="">Bitte wählen</option>
+                    <option value=""><?php echo htmlspecialchars(t('Bitte wählen')); ?></option>
                     <?php foreach ($locations as $location): ?>
                         <option value="<?php echo htmlspecialchars($location['id']); ?>" <?php echo ($answers['location'] ?? '') === $location['id'] ? 'selected' : ''; ?>><?php echo htmlspecialchars($location['name']); ?></option>
                     <?php endforeach; ?>
                 </select>
-                <div class="text-secondary small mt-1">Dein Shop hat <?php echo count($locations); ?> Standorte. Abgeglichen wird der Bestand dieses Standorts.</div>
+                <div class="text-secondary small mt-1"><?php echo htmlspecialchars(t('Dein Shop hat {n} Standorte. Abgeglichen wird der Bestand dieses Standorts.', ['n' => count($locations)])); ?></div>
             </div>
         <?php endif; ?>
 
     <?php elseif ($step === 'invoice'): ?>
         <?php $mailChecked = !empty($answers['mail']); ?>
         <div>
-            <h2>Was soll passieren, wenn eine Bestellung bezahlt ist?</h2>
+            <h2><?php echo htmlspecialchars(t('Was soll passieren, wenn eine Bestellung bezahlt ist?')); ?></h2>
         </div>
         <div class="wz-choices">
-            <?php echo $choice('invoice', 'invoice', $answers['invoice'] ?? null, '&euro;', 'Rechnung in ' . $targetName . ' erstellen', 'Die Rechnung erscheint in ' . $targetName . ', der Bestand wird dort abgebucht.', 'Häufigste Wahl'); ?>
+            <?php echo $choice('invoice', 'invoice', $answers['invoice'] ?? null, '&euro;', t('Rechnung in {name} erstellen', ['name' => $targetName]), t('Die Rechnung erscheint in {name}, der Bestand wird dort abgebucht.', ['name' => $targetName]), t('Häufigste Wahl')); ?>
             <?php if ($wizard->supportsStockOnly($shop)): ?>
-                <?php echo $choice('invoice', 'stockonly', $answers['invoice'] ?? null, '&minus;', 'Nur den Lagerbestand abziehen', 'Keine Rechnung in ' . $targetName . ', nur die verkauften Stück werden abgebucht.'); ?>
+                <?php echo $choice('invoice', 'stockonly', $answers['invoice'] ?? null, '&minus;', t('Nur den Lagerbestand abziehen'), t('Keine Rechnung in {name}, nur die verkauften Stück werden abgebucht.', ['name' => $targetName])); ?>
             <?php endif; ?>
-            <?php echo $choice('invoice', 'none', $answers['invoice'] ?? null, '&ndash;', 'Nichts', 'Bestellungen bleiben nur in Shopify.'); ?>
+            <?php echo $choice('invoice', 'none', $answers['invoice'] ?? null, '&ndash;', t('Nichts'), t('Bestellungen bleiben nur in Shopify.')); ?>
         </div>
         <label class="wz-legal form-check mb-0 ps-5" id="wz-mail" <?php echo ($answers['invoice'] ?? null) === 'invoice' ? '' : 'hidden'; ?>>
             <input type="checkbox" name="mail" class="form-check-input" <?php echo $mailChecked ? 'checked' : ''; ?>>
-            <span class="form-check-label">Rechnung als PDF auch per E-Mail an den Kunden schicken
-                <span class="d-block text-secondary small">Absender, Betreff und Text kannst du danach in den Einstellungen anpassen.</span></span>
+            <span class="form-check-label"><?php echo htmlspecialchars(t('Rechnung als PDF auch per E-Mail an den Kunden schicken')); ?>
+                <span class="d-block text-secondary small"><?php echo htmlspecialchars(t('Absender, Betreff und Text kannst du danach in den Einstellungen anpassen.')); ?></span></span>
         </label>
         <script>
             document.querySelectorAll('input[name="invoice"]').forEach(function (radio) {
@@ -550,71 +552,71 @@ require __DIR__ . '/_header.php';
         $current = (string) ($answers['prices'] ?? ($fromShopify !== null ? (string) (int) $fromShopify : ''));
         ?>
         <div>
-            <h2>Sind deine Shopify-Preise inklusive Mehrwertsteuer?</h2>
+            <h2><?php echo htmlspecialchars(t('Sind deine Shopify-Preise inklusive Mehrwertsteuer?')); ?></h2>
             <p class="lead">
                 <?php if ($fromShopify !== null): ?>
-                    Laut deinem Shop: <strong><?php echo (int) $fromShopify === 1 ? 'ja, inklusive MwSt.' : 'nein, ohne MwSt.'; ?></strong>
+                    <?php echo htmlspecialchars(t('Laut deinem Shop:')); ?> <strong><?php echo htmlspecialchars((int) $fromShopify === 1 ? t('ja, inklusive MwSt.') : t('nein, ohne MwSt.')); ?></strong>
                 <?php endif; ?>
-                Das ist wichtig, damit die Beträge auf der Rechnung stimmen.
+                <?php echo htmlspecialchars(t('Das ist wichtig, damit die Beträge auf der Rechnung stimmen.')); ?>
             </p>
         </div>
         <div class="wz-choices">
-            <?php echo $choice('prices', '1', $current, '&#10003;', 'Ja, inklusive MwSt. (Brutto)', 'So rechnen die meisten Shops.', $fromShopify !== null && (int) $fromShopify === 1 ? 'Aus Shopify' : null); ?>
-            <?php echo $choice('prices', '0', $current, '%', 'Nein, ohne MwSt. (Netto)', 'Die Mehrwertsteuer kommt an der Kasse dazu.', $fromShopify !== null && (int) $fromShopify === 0 ? 'Aus Shopify' : null); ?>
+            <?php echo $choice('prices', '1', $current, '&#10003;', t('Ja, inklusive MwSt. (Brutto)'), t('So rechnen die meisten Shops.'), $fromShopify !== null && (int) $fromShopify === 1 ? t('Aus Shopify') : null); ?>
+            <?php echo $choice('prices', '0', $current, '%', t('Nein, ohne MwSt. (Netto)'), t('Die Mehrwertsteuer kommt an der Kasse dazu.'), $fromShopify !== null && (int) $fromShopify === 0 ? t('Aus Shopify') : null); ?>
         </div>
 
     <?php elseif ($step === 'done'): ?>
         <?php
         $lead = ($answers['lead'] ?? 'target') === 'shopify' ? 'shopify' : 'target';
-        $locationName = ' · Standort fehlt';
+        $locationName = ' · ' . t('Standort fehlt');
         foreach ($wizard->shopifyLocations($shop) as $location) {
             if ($location['id'] === ($answers['location'] ?? '')) {
                 $locationName = ' · ' . $location['name'];
             }
         }
         $rows = [
-            ['Verbunden mit', $targetName, 'connect'],
-            ['Produkte erkennen an', SetupWizard::COMPARE_LABELS[$answers['compare'] ?? 'sku'] ?? 'Artikelnummer (SKU)', 'compare'],
-            ['Lagerbestand', ($answers['stock'] ?? 'no') === 'yes' ? ('wird in ' . ($lead === 'target' ? $targetName : 'Shopify') . ' gepflegt' . $locationName) : 'kein Abgleich', 'stock'],
-            ['Bezahlte Bestellung', ['invoice' => 'Rechnung in ' . $targetName . (!empty($answers['mail']) ? ' + E-Mail an Kunden' : ''), 'stockonly' => 'nur Bestand abziehen', 'none' => 'nichts'][$answers['invoice'] ?? 'none'] ?? 'nichts', 'invoice'],
+            [t('Verbunden mit'), $targetName, 'connect'],
+            [t('Produkte erkennen an'), t(SetupWizard::COMPARE_LABELS[$answers['compare'] ?? 'sku'] ?? 'Artikelnummer (SKU)'), 'compare'],
+            [t('Lagerbestand'), ($answers['stock'] ?? 'no') === 'yes' ? (t('wird in {name} gepflegt', ['name' => $lead === 'target' ? $targetName : 'Shopify']) . $locationName) : t('kein Abgleich'), 'stock'],
+            [t('Bezahlte Bestellung'), ['invoice' => t('Rechnung in {name}', ['name' => $targetName]) . (!empty($answers['mail']) ? ' + ' . t('E-Mail an Kunden') : ''), 'stockonly' => t('nur Bestand abziehen'), 'none' => t('nichts')][$answers['invoice'] ?? 'none'] ?? t('nichts'), 'invoice'],
         ];
         if (($answers['invoice'] ?? null) === 'invoice') {
-            $rows[] = ['Preise in Shopify', ($answers['prices'] ?? '1') === '1' ? 'inkl. MwSt.' : 'ohne MwSt.', 'prices'];
+            $rows[] = [t('Preise in Shopify'), ($answers['prices'] ?? '1') === '1' ? t('inkl. MwSt.') : t('ohne MwSt.'), 'prices'];
         }
         ?>
         <div>
-            <h2><?php echo $rerun ? 'Deine Einstellungen' : 'Alles bereit'; ?></h2>
-            <p class="lead"><?php echo $rerun ? 'So arbeitet oView nach dem Übernehmen für dich.' : 'So arbeitet oView ab jetzt für dich. Du kannst alles später in den Einstellungen ändern.'; ?></p>
+            <h2><?php echo htmlspecialchars($rerun ? t('Deine Einstellungen') : t('Alles bereit')); ?></h2>
+            <p class="lead"><?php echo htmlspecialchars($rerun ? t('So arbeitet oView nach dem Übernehmen für dich.') : t('So arbeitet oView ab jetzt für dich. Du kannst alles später in den Einstellungen ändern.')); ?></p>
         </div>
         <div class="wz-summary">
             <?php foreach ($rows as [$label, $value, $editStep]): ?>
-                <div><span><?php echo htmlspecialchars($label); ?></span><span><strong><?php echo htmlspecialchars($value); ?></strong> · <a href="<?php echo htmlspecialchars($stepUrl($editStep)); ?>">ändern</a></span></div>
+                <div><span><?php echo htmlspecialchars($label); ?></span><span><strong><?php echo htmlspecialchars($value); ?></strong> · <a href="<?php echo htmlspecialchars($stepUrl($editStep)); ?>"><?php echo htmlspecialchars(t('ändern')); ?></a></span></div>
             <?php endforeach; ?>
         </div>
         <?php if (!$rerun): ?>
-            <div class="alert alert-info mb-0">Der erste Abgleich startet sofort und dauert ein paar Minuten. Bis dahin zeigt dir die Übersicht, was gerade passiert.</div>
+            <div class="alert alert-info mb-0"><?php echo htmlspecialchars(t('Der erste Abgleich startet sofort und dauert ein paar Minuten. Bis dahin zeigt dir die Übersicht, was gerade passiert.')); ?></div>
         <?php endif; ?>
     <?php endif; ?>
 
     <div class="wz-nav">
         <?php if ($backUrl !== null): ?>
-            <a href="<?php echo htmlspecialchars($backUrl); ?>" class="btn">Zurück</a>
+            <a href="<?php echo htmlspecialchars($backUrl); ?>" class="btn"><?php echo htmlspecialchars(t('Zurück')); ?></a>
         <?php else: ?>
             <span></span>
         <?php endif; ?>
         <?php
         $nextLabel = match (true) {
-            $legalOnly => 'Zustimmen und weiter',
-            $step === 'welcome' => 'Los geht’s',
-            $step === 'connect' => 'Verbindung prüfen',
-            $step === 'done' => $rerun ? 'Übernehmen' : 'oView starten',
-            default => 'Weiter',
+            $legalOnly => t('Zustimmen und weiter'),
+            $step === 'welcome' => t('Los geht’s'),
+            $step === 'connect' => t('Verbindung prüfen'),
+            $step === 'done' => $rerun ? t('Übernehmen') : t('oView starten'),
+            default => t('Weiter'),
         };
         ?>
         <?php if ($step === 'connect' && ($alreadyConnected ?? false)): ?>
             <span class="d-flex gap-2">
-                <a href="<?php echo htmlspecialchars($stepUrl($nextStepAfter('connect'))); ?>" class="btn btn-primary">Weiter</a>
-                <button type="submit" class="btn">Neu verbinden</button>
+                <a href="<?php echo htmlspecialchars($stepUrl($nextStepAfter('connect'))); ?>" class="btn btn-primary"><?php echo htmlspecialchars(t('Weiter')); ?></a>
+                <button type="submit" class="btn"><?php echo htmlspecialchars(t('Neu verbinden')); ?></button>
             </span>
         <?php elseif (!($step === 'connect' && $chosenType === null)): ?>
             <button type="submit" class="btn btn-primary"><?php echo htmlspecialchars($nextLabel); ?></button>

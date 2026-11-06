@@ -189,6 +189,14 @@ if ($isAdmin && $_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? ''
 // bestand ins Zielsystem schreiben, Aufträge automatisch anlegen) ist noch
 // nicht Teil dieses Bausteins (siehe Datei-Kopfkommentar).
 // -----------------------------------------------------------------------
+// Sprache der Oberflaeche (nur Merchant, nicht Admin-Vorschau): gilt sofort fuer diese Antwort
+if (!$isAdmin && !isset($_GET['preview']) && $_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_language') {
+    if (\Connect\I18n\Lang::save($pdo, $shop, (string) ($_POST['language'] ?? ''))) {
+        $flashMessage = t('Sprache gespeichert.');
+        $flashType = 'success';
+    }
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_comparison_key') {
     $comparisonKey = (string) ($_POST['comparison_key'] ?? '');
 
@@ -1159,7 +1167,7 @@ if ($shopSettings['target_connection_id'] !== null) {
 // private Typen nur fuer Shops mit bestehender Connection (Migration 0096).
 $targetConnectorTypes = \Connect\Setup\TargetSystemSetup::availableTypes($pdo, $shop);
 
-$pageTitle = $isAdmin ? ('Jobs — ' . $shop) : 'Einstellungen';
+$pageTitle = $isAdmin ? ('Jobs — ' . $shop) : \Connect\I18n\Lang::t('Einstellungen');
 
 $navItems = require __DIR__ . '/_shop_nav.php';
 
@@ -1175,14 +1183,35 @@ require __DIR__ . '/_header.php';
 ?>
 
 <?php if (!$isAdmin && !isset($_GET['preview'])): ?>
+    <?php // Sprache der Oberflaeche (Connect\I18n\Lang), gleiche Auswahl wie die Flagge in der Kopfzeile ?>
+    <div class="card mb-3">
+        <div class="card-body">
+            <form method="post" class="d-flex justify-content-between align-items-center gap-3 flex-wrap">
+                <input type="hidden" name="action" value="save_language">
+                <div>
+                    <div class="fw-bold"><?php echo htmlspecialchars(t('Sprache')); ?></div>
+                    <div class="text-secondary"><?php echo htmlspecialchars(t('In welcher Sprache soll oView angezeigt werden?')); ?></div>
+                </div>
+                <div class="d-flex align-items-center gap-2">
+                    <?php foreach (\Connect\I18n\Lang::SUPPORTED as $langCode => $langName): ?>
+                        <label class="btn <?php echo \Connect\I18n\Lang::code() === $langCode ? 'btn-primary' : 'btn-outline-secondary'; ?> d-flex align-items-center gap-2 mb-0">
+                            <input type="radio" name="language" value="<?php echo htmlspecialchars($langCode); ?>" class="d-none" <?php echo \Connect\I18n\Lang::code() === $langCode ? 'checked' : ''; ?> onchange="this.form.submit()">
+                            <?php echo \Connect\I18n\Lang::flag($langCode, 14); ?><span><?php echo htmlspecialchars($langName); ?></span>
+                        </label>
+                    <?php endforeach; ?>
+                    <noscript><button type="submit" class="btn btn-primary"><?php echo htmlspecialchars(t('Speichern')); ?></button></noscript>
+                </div>
+            </form>
+        </div>
+    </div>
     <?php // Einrichtung erneut durchgehen (app/welcome.php?rerun=1): vorbelegt, wirksam erst mit "Übernehmen" ?>
     <div class="card mb-3">
         <div class="card-body d-flex justify-content-between align-items-center gap-3 flex-wrap">
             <div>
-                <div class="fw-bold">Einrichtungs-Assistent</div>
-                <div class="text-secondary">Die wichtigsten Fragen noch einmal Schritt für Schritt beantworten. Geändert wird erst, wenn du am Ende „Übernehmen“ klickst.</div>
+                <div class="fw-bold"><?php echo htmlspecialchars(t('Einrichtungs-Assistent')); ?></div>
+                <div class="text-secondary"><?php echo htmlspecialchars(t('Die wichtigsten Fragen noch einmal Schritt für Schritt beantworten. Geändert wird erst, wenn du am Ende „Übernehmen“ klickst.')); ?></div>
             </div>
-            <a href="welcome.php?shop=<?php echo urlencode($shop); ?>&amp;rerun=1" class="btn btn-primary">Assistent starten</a>
+            <a href="welcome.php?shop=<?php echo urlencode($shop); ?>&amp;rerun=1" class="btn btn-primary"><?php echo htmlspecialchars(t('Assistent starten')); ?></a>
         </div>
     </div>
 <?php endif; ?>
