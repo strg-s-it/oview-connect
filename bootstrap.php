@@ -94,6 +94,7 @@ if (!is_string($shop) || $shop === '') {
 // damit auch die Fehlerseiten unten in der gewaehlten Sprache erscheinen.
 if (preg_match('/^[a-z0-9][a-z0-9-]*$/', $shop) === 1) {
     \Connect\I18n\Lang::load($db->pdo(), $shop);
+    \Connect\I18n\Lang::startOutputTranslation(); // bei Englisch die fertige Seite uebersetzen (Woerterbuch src/I18n/en)
 }
 
 $sig = $_GET['sig'] ?? null;

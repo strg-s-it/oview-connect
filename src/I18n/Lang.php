@@ -125,6 +125,25 @@ final class Lang
         return $text;
     }
 
+    /**
+     * Gesamtes englisches Woerterbuch (deutscher Text => Englisch).
+     *
+     * @return array<string, string>
+     */
+    public static function dictionary(): array
+    {
+        return self::$english ??= self::loadEnglish();
+    }
+
+    /**
+     * Uebersetzt die fertig gerenderte Seite bei Englisch (Connect\I18n\OutputTranslator): so muessen
+     * nicht alle Seiten-Texte einzeln in t() stehen. Einmal pro Anfrage aufrufen, nach dem Laden der Sprache.
+     */
+    public static function startOutputTranslation(): void
+    {
+        ob_start([OutputTranslator::class, 'filter']);
+    }
+
     /** @return array<string, string> */
     private static function loadEnglish(): array
     {

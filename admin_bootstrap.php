@@ -54,6 +54,7 @@ if (!is_string($shop) || $shop === '') {
 require_once __DIR__ . '/src/I18n/functions.php';
 if (isset($_GET['preview'])) {
     \Connect\I18n\Lang::loadPreview($pdo, $shop);
+    \Connect\I18n\Lang::startOutputTranslation();
     $langRequested = $_GET['lang'] ?? null;
     if (is_string($langRequested) && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET' && \Connect\I18n\Lang::savePreview($langRequested)) {
         $langParams = $_GET;
