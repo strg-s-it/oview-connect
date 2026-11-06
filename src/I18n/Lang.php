@@ -22,6 +22,7 @@ final class Lang
     public const SUPPORTED = ['de' => 'Deutsch', 'en' => 'English'];
 
     private const SESSION_KEY = 'connect_lang';
+    private const PREVIEW_KEY = 'connect_lang_preview';
 
     private static string $code = 'de';
 
@@ -58,6 +59,31 @@ final class Lang
         if (is_string($session) && self::isValid($session)) {
             self::$code = $session;
         }
+    }
+
+    /**
+     * Admin-Vorschau ("Als Merchant ansehen"): Sprache des Shops, ueberschrieben von der Wahl in der
+     * Admin-Sitzung. Aendert nie die gespeicherte Sprache des Shops.
+     */
+    public static function loadPreview(PDO $pdo, string $shop): void
+    {
+        self::load($pdo, $shop);
+        $session = $_SESSION[self::PREVIEW_KEY] ?? null;
+        if (is_string($session) && self::isValid($session)) {
+            self::$code = $session;
+        }
+    }
+
+    /** Vorschau-Sprache nur in der Admin-Sitzung merken. */
+    public static function savePreview(string $code): bool
+    {
+        if (!self::isValid($code)) {
+            return false;
+        }
+        self::$code = $code;
+        $_SESSION[self::PREVIEW_KEY] = $code;
+
+        return true;
     }
 
     /** Sprache speichern und fuer diese Anfrage uebernehmen. */

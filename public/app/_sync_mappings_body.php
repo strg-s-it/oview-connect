@@ -190,8 +190,12 @@ if ($isAdmin && $_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? ''
 // nicht Teil dieses Bausteins (siehe Datei-Kopfkommentar).
 // -----------------------------------------------------------------------
 // Sprache der Oberflaeche (nur Merchant, nicht Admin-Vorschau): gilt sofort fuer diese Antwort
-if (!$isAdmin && !isset($_GET['preview']) && $_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_language') {
-    if (\Connect\I18n\Lang::save($pdo, $shop, (string) ($_POST['language'] ?? ''))) {
+if (!$isAdmin && $_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_language') {
+    // In der Admin-Vorschau nur die Sitzung des Admins, nie die gespeicherte Sprache des Shops
+    $langSaved = isset($_GET['preview'])
+        ? \Connect\I18n\Lang::savePreview((string) ($_POST['language'] ?? ''))
+        : \Connect\I18n\Lang::save($pdo, $shop, (string) ($_POST['language'] ?? ''));
+    if ($langSaved) {
         $flashMessage = t('Sprache gespeichert.');
         $flashType = 'success';
     }
@@ -1182,7 +1186,7 @@ if ($isAdmin) {
 require __DIR__ . '/_header.php';
 ?>
 
-<?php if (!$isAdmin && !isset($_GET['preview'])): ?>
+<?php if (!$isAdmin): ?>
     <?php // Sprache der Oberflaeche (Connect\I18n\Lang), gleiche Auswahl wie die Flagge in der Kopfzeile ?>
     <div class="card mb-3">
         <div class="card-body">
@@ -1204,6 +1208,7 @@ require __DIR__ . '/_header.php';
             </form>
         </div>
     </div>
+    <?php if (!isset($_GET['preview'])): ?>
     <?php // Einrichtung erneut durchgehen (app/welcome.php?rerun=1): vorbelegt, wirksam erst mit "Übernehmen" ?>
     <div class="card mb-3">
         <div class="card-body d-flex justify-content-between align-items-center gap-3 flex-wrap">
@@ -1214,6 +1219,7 @@ require __DIR__ . '/_header.php';
             <a href="welcome.php?shop=<?php echo urlencode($shop); ?>&amp;rerun=1" class="btn btn-primary"><?php echo htmlspecialchars(t('Assistent starten')); ?></a>
         </div>
     </div>
+    <?php endif; ?>
 <?php endif; ?>
 
 <div class="row row-cards">

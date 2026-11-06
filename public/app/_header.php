@@ -80,9 +80,9 @@ if (in_array($activeAdminScript, ['connector_types.php', 'connector_type_edit.ph
 // Default nur fuer Merchant-Seiten relevant (Admin-Seiten setzen $topRightHtml
 // immer selbst mit E-Mail+Logout) -- zeigt den Shop-Namen, damit erkennbar
 // ist, welcher Shop gerade angezeigt wird.
-// Flagge zum Sprachwechsel (Connect\I18n\Lang): nur in der echten Merchant-Ansicht, nicht in der Admin-Vorschau
+// Flagge zum Sprachwechsel (Connect\I18n\Lang), auch in der Admin-Vorschau (dort nur Sitzung, siehe admin_bootstrap.php)
 $topRightHtml = $topRightHtml ?? (
-    (isset($app->shop) && !isset($_GET['preview']) ? \Connect\I18n\Lang::switcherHtml() : '')
+    (isset($app->shop) ? \Connect\I18n\Lang::switcherHtml() : '')
     . '<span class="text-secondary me-1">' . htmlspecialchars($app->shop ?? '') . '</span><span class="badge bg-yellow-lt">Beta</span>'
 );
 

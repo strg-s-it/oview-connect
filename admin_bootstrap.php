@@ -49,4 +49,19 @@ if (!is_string($shop) || $shop === '') {
     exit;
 }
 
+// Admin-Vorschau der Merchant-Ansicht (?preview=1): Sprache wie beim Merchant, Wechsel per Flagge (?lang=)
+// gilt nur in dieser Admin-Sitzung und aendert nie die gespeicherte Sprache des Shops.
+require_once __DIR__ . '/src/I18n/functions.php';
+if (isset($_GET['preview'])) {
+    \Connect\I18n\Lang::loadPreview($pdo, $shop);
+    $langRequested = $_GET['lang'] ?? null;
+    if (is_string($langRequested) && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET' && \Connect\I18n\Lang::savePreview($langRequested)) {
+        $langParams = $_GET;
+        unset($langParams['lang']);
+        $langPage = basename((string) parse_url((string) ($_SERVER['REQUEST_URI'] ?? ''), PHP_URL_PATH));
+        header('Location: ' . ($langPage !== '' ? $langPage : 'dashboard.php') . '?' . http_build_query($langParams));
+        exit;
+    }
+}
+
 return new AppContext($pdo, $crypto, $shop, $config);
