@@ -258,6 +258,7 @@ final class StockSyncRunner
         $liveChecks = 0;     // Live-Kontrollen in diesem Lauf (je 2 API-Aufrufe)
         $liveCorrected = 0;  // Cache war veraltet, live gleich -> nicht geschrieben
         $deferred = 0;       // ueber dem Limit, im naechsten Lauf
+        $notAtLocation = []; // Shopify-Varianten ohne Bestand am gewaehlten Standort (kein Fehler)
 
         foreach ($sourceRecords as $sourceRecord) {
             $matchValue = $sourceRecord[$sourceMatchField->key] ?? null;
@@ -369,6 +370,13 @@ final class StockSyncRunner
                 // stimmt damit nicht mehr -- ohne bekannten Ziel-Bestand kann
                 // nicht geschrieben werden, gleiche Absicherung wie im
                 // Nicht-Shopify-Zweig unten.
+                // Standort-gebundenes Feld und live immer noch null: die Variante wird am gewaehlten
+                // Standort nicht gefuehrt (Standort nicht aktiviert / Bestand nicht verfolgt). Kein
+                // Fehler, nur nicht abgleichbar -- gleiche Haltung wie auf der Quellseite (oben).
+                if ($currentDestQuantity === null && $locationScoped) {
+                    $notAtLocation[] = (string) $matchValue;
+                    continue;
+                }
                 if ($currentDestQuantity === null) {
                     $failed++;
                     $errorMessages[] = "Shopify-Ziel fuer \"{$matchValue}\": bisheriger Lagerbestand im Cache unbekannt -- changeFromQuantity kann nicht gesetzt werden.";
@@ -551,6 +559,11 @@ final class StockSyncRunner
         }
         if ($deferred > 0) {
             $message .= " {$deferred} weitere Abweichungen folgen im nächsten Lauf (max. " . self::MAX_LIVE_CHECKS_PER_RUN . ' je Lauf).';
+        }
+        if ($notAtLocation !== []) {
+            $message .= ' ' . count($notAtLocation) . ' Shopify-Varianten nicht abgeglichen: am gewählten Standort nicht geführt'
+                . ' (in Shopify Standort aktivieren und "Bestand verfolgen" einschalten): '
+                . implode(', ', array_slice($notAtLocation, 0, 10)) . (count($notAtLocation) > 10 ? ' …' : '') . '.';
         }
         if ($skippedDuplicates > 0) {
             $message .= " {$skippedDuplicates} wegen mehrfach vorkommendem Vergleichswert uebersprungen (siehe Produkte-Seite, Probleme).";
