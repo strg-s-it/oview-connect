@@ -890,6 +890,21 @@ final class GenericHttpConnector implements ConnectorInterface
             }
         }
 
+        // Voruebergehender Serverfehler (502/503/504, z.B. Shopifys "Please try again in 30 seconds"):
+        // NUR bei reinen Lese-Aufrufen wiederholen. Bei Schreib-Aufrufen (Rechnung, Lagerbestand)
+        // nie -- die Anfrage kann trotz Fehlerseite angekommen sein, ein Wiederholen buchte doppelt.
+        if (str_starts_with($operation->operationType, 'read') && in_array($response->statusCode, [502, 503, 504], true)) {
+            $waits = PHP_SAPI === 'cli' ? [10, 20] : [3];
+            foreach ($waits as $wait) {
+                sleep($wait);
+                $response = $this->httpClient->request($operation->httpMethod, $url, $headers, $body);
+                $this->recordUsage($response);
+                if (!in_array($response->statusCode, [502, 503, 504], true)) {
+                    break;
+                }
+            }
+        }
+
         return $response;
     }
 
