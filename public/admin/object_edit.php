@@ -927,7 +927,7 @@ require dirname(__DIR__) . '/app/_header.php';
                             </tr>
                         </thead>
                         <tbody>
-                            <?php $opLabels = ['read_list' => 'Lesen (Liste)', 'read_list_supplement' => 'Lesen (Zusatzliste)', 'read_one' => 'Lesen (einzeln)', 'create' => 'Anlegen', 'update' => 'Aktualisieren', 'update_price' => 'Preis aktualisieren', 'read_pdf' => 'PDF abrufen']; ?>
+                            <?php $opLabels = ['read_list' => 'Lesen (Liste)', 'read_list_supplement' => 'Lesen (Zusatzliste)', 'read_one' => 'Lesen (einzeln)', 'create' => 'Anlegen', 'update' => 'Aktualisieren', 'update_price' => 'Preis aktualisieren', 'read_pdf' => 'PDF abrufen', 'adjust_stock' => 'Bestand anpassen']; ?>
                             <?php foreach ($operations as $operation): ?>
                                 <tr>
                                     <td><?php echo htmlspecialchars($opLabels[$operation['operation_type']] ?? $operation['operation_type']); ?></td>
@@ -959,6 +959,7 @@ require dirname(__DIR__) . '/app/_header.php';
                             <option value="update">Aktualisieren (update)</option>
                             <option value="update_price">Preis aktualisieren (update_price)</option>
                             <option value="read_pdf">PDF abrufen (read_pdf)</option>
+                            <option value="adjust_stock">Bestand anpassen (adjust_stock)</option>
                         </select>
                     </div>
                     <div class="col-auto">

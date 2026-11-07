@@ -209,7 +209,7 @@ $testConnections = $pdo->prepare(
 $testConnections->execute(['ctid' => $operation['connector_type_id']]);
 $testConnections = $testConnections->fetchAll();
 
-$operationTypeLabels = ['read_list' => 'Lesen (Liste)', 'read_list_supplement' => 'Lesen (Zusatzliste)', 'read_one' => 'Lesen (einzeln)', 'create' => 'Anlegen', 'update' => 'Aktualisieren', 'update_price' => 'Preis aktualisieren', 'read_pdf' => 'PDF abrufen'];
+$operationTypeLabels = ['read_list' => 'Lesen (Liste)', 'read_list_supplement' => 'Lesen (Zusatzliste)', 'read_one' => 'Lesen (einzeln)', 'create' => 'Anlegen', 'update' => 'Aktualisieren', 'update_price' => 'Preis aktualisieren', 'read_pdf' => 'PDF abrufen', 'adjust_stock' => 'Bestand anpassen'];
 $operationTypeLabel = $operationTypeLabels[$operation['operation_type']] ?? $operation['operation_type'];
 
 $pageTitle = 'Operation: ' . $operationTypeLabel . ' (' . $operation['object_label'] . ')';
