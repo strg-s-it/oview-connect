@@ -41,6 +41,21 @@ final class OrderPreparer
     ];
 
     /**
+     * Aktuelle Menge einer Bestellposition: nach Bearbeitung der Bestellung
+     * (Position entfernt/Menge geaendert) gilt currentQuantity (Migration 0110),
+     * sonst -- Migration fehlt oder Datensatz vorher gecacht -- die urspruengliche Menge.
+     *
+     * @param array<string, mixed> $lineItem
+     */
+    public static function effectiveQuantity(array $lineItem): float
+    {
+        $key = isset($lineItem['line_current_quantity']) && is_numeric($lineItem['line_current_quantity'])
+            ? 'line_current_quantity' : 'line_quantity';
+
+        return (float) ($lineItem[$key] ?? 0);
+    }
+
+    /**
      * @param array<string, mixed> $orderRow
      * @param bool $pricesIncludeTax connect_shops.shopify_prices_include_tax (NULL gilt als true)
      * @param ?callable(string): ?array{id: string, name: ?string} $articleResolver Vergleichswert der Position -> ID
@@ -59,10 +74,16 @@ final class OrderPreparer
                 continue;
             }
 
-            $quantity = (float) ($lineItem['line_quantity'] ?? 0);
+            $quantity = self::effectiveQuantity($lineItem);
             if ($quantity <= 0) {
                 continue;
             }
+            // Bearbeitete Bestellung (Menge reduziert): Shopify meldet Steuer und
+            // Rabatt-Zuteilungen je Position vermutlich fuer die URSPRUENGLICHE Menge
+            // -> anteilig auf die aktuelle Menge umrechnen. Stimmt die Annahme nicht,
+            // fangen Steuer- und Betrags-Kontrolle es ab (Rechnung wird nicht angelegt).
+            $originalQuantity = (float) ($lineItem['line_quantity'] ?? 0);
+            $scale = $originalQuantity > 0 && $quantity < $originalQuantity ? $quantity / $originalQuantity : 1.0;
 
             // line_name = Produkttitel MIT Variante ("Katze - Mittel", Migration
             // 0066), faellt fuer aeltere Cache-Datensaetze auf den reinen Titel zurueck.
@@ -83,9 +104,11 @@ final class OrderPreparer
             // Summe faengt die Betrags-Kontrolle ab.
             $hasAllocations = array_key_exists('line_discount_1', $lineItem);
             if ($hasAllocations) {
-                $lineDiscount = (float) ($lineItem['line_discount_1'] ?? 0)
+                $lineDiscount = round((
+                    (float) ($lineItem['line_discount_1'] ?? 0)
                     + (float) ($lineItem['line_discount_2'] ?? 0)
-                    + (float) ($lineItem['line_discount_3'] ?? 0);
+                    + (float) ($lineItem['line_discount_3'] ?? 0)
+                ) * $scale, 2);
                 $lineTotal = round(((float) ($lineItem['line_price'] ?? 0)) * $quantity - $lineDiscount, 2);
             } else {
                 $lineTotal = round(((float) ($lineItem['line_discounted_price'] ?? $lineItem['line_price'] ?? 0)) * $quantity, 2);
@@ -94,7 +117,7 @@ final class OrderPreparer
             // Rabattbetrag VOR der Netto->Brutto-Umrechnung (beide Werte in Shopifys Preisbasis).
             $discountAmount = max(0.0, round($unitPriceOriginal * $quantity - $lineTotal, 2));
             $taxRateFraction = (float) ($lineItem['line_tax_rate'] ?? 0);
-            $taxAmount = (float) ($lineItem['line_tax_amount'] ?? 0);
+            $taxAmount = round((float) ($lineItem['line_tax_amount'] ?? 0) * $scale, 2);
 
             // Live beobachtet (Migration 0062, Bestellung #1218/Shop 3bnyc1-n9):
             // Shopify liefert fuer eine "taxable": false-Position TROTZDEM einen

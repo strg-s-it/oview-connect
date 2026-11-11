@@ -392,7 +392,7 @@ final class InvoiceService
                 continue;
             }
 
-            $quantity = (float) ($lineItem['line_quantity'] ?? 0);
+            $quantity = OrderPreparer::effectiveQuantity($lineItem);
             if ($quantity <= 0) {
                 continue;
             }
