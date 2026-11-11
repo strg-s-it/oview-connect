@@ -200,7 +200,7 @@ final class InvoiceService
                     $computedTotalTax,
                     $shopifyTotalTax,
                     $taxDiff
-                );
+                ) . ' ' . self::diagnoseOrder($orderRow);
                 $this->notifyError($shop, $shopRow, $message, $orderRow);
                 ActivityLog::log($this->pdo, $shop, null, 'invoice', 'create', false, "Bestellung {$orderNumber}: {$message}", null, null, null, $syncRunId);
 
@@ -230,7 +230,7 @@ final class InvoiceService
                     $computedGross,
                     $shopifyGross,
                     $grossDiff
-                );
+                ) . ' ' . self::diagnoseOrder($orderRow);
                 $this->notifyError($shop, $shopRow, $message, $orderRow);
                 ActivityLog::log($this->pdo, $shop, null, 'invoice', 'create', false, "Bestellung {$orderNumber}: {$message}", null, null, null, $syncRunId);
 
@@ -333,6 +333,51 @@ final class InvoiceService
         }
 
         return self::result(true, false, $invoiceNumber !== null ? (string) $invoiceNumber : null, $message);
+    }
+
+    /**
+     * Kurze Aufschluesselung der gelesenen Bestelldaten fuer die Fehlermeldung
+     * der Steuer-/Betrags-Kontrolle (Diagnose bei bearbeiteten Bestellungen,
+     * 2026-11-11): je Position Menge (urspruenglich/aktuell), Einzelpreis,
+     * Rabatt, Steuer; dazu Versand und Shopifys Summen.
+     *
+     * @param array<string, mixed> $orderRow
+     */
+    private static function diagnoseOrder(array $orderRow): string
+    {
+        $parts = [];
+        foreach ((array) ($orderRow['line_items'] ?? []) as $lineItem) {
+            if (!is_array($lineItem)) {
+                continue;
+            }
+            $discount = (float) ($lineItem['line_discount_1'] ?? 0) + (float) ($lineItem['line_discount_2'] ?? 0) + (float) ($lineItem['line_discount_3'] ?? 0);
+            $parts[] = sprintf(
+                '[%s | sku %s | Menge %s/aktuell %s | Preis %s | Rabatt %.2f | Steuer %s]',
+                mb_substr(trim((string) ($lineItem['line_name'] ?? $lineItem['line_title'] ?? '?')), 0, 30),
+                trim((string) ($lineItem['line_sku'] ?? '')) ?: '-',
+                (string) ($lineItem['line_quantity'] ?? '?'),
+                (string) ($lineItem['line_current_quantity'] ?? 'n/a'),
+                (string) ($lineItem['line_price'] ?? '?'),
+                $discount,
+                (string) ($lineItem['line_tax_amount'] ?? '?')
+            );
+        }
+        $shippingTax = [];
+        foreach ((array) ($orderRow['shipping_tax_lines'] ?? []) as $taxLine) {
+            if (is_array($taxLine)) {
+                $shippingTax[] = (string) ($taxLine['shipping_tax_line_rate'] ?? '?') . '/' . (string) ($taxLine['shipping_tax_line_amount'] ?? '?');
+            }
+        }
+
+        return sprintf(
+            'Diagnose: Positionen %s; Versand original %s, rabattiert %s, Steuer (Satz/Betrag) %s; Shopify total_price %s, total_tax %s.',
+            implode(' ', $parts) ?: '-',
+            (string) ($orderRow['shipping_original_price'] ?? 'n/a'),
+            (string) ($orderRow['shipping_discounted_price'] ?? $orderRow['shipping_price'] ?? 'n/a'),
+            implode(',', $shippingTax) ?: '-',
+            (string) ($orderRow['total_price'] ?? 'n/a'),
+            (string) ($orderRow['total_tax'] ?? 'n/a')
+        );
     }
 
     /**
