@@ -59,6 +59,7 @@ return [
     ['group', 'Konfiguration', [
         ['branding.php', 'Branding'],
         ['config_map.php', 'Landkarte'],
+        ['export_definitions.php', 'Definitionen exportieren'],
         ['faq.php', 'FAQ'],
         ['legal_texts.php', 'Rechtstexte'],
     ]],

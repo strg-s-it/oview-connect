@@ -96,6 +96,7 @@ final class Icon
         'shops.php' => 'building-store',
         'transition.php' => 'transfer',
         'export.php' => 'download',
+        'export_definitions.php' => 'download',
         'messages.php' => 'mail',
         'privacy_requests.php' => 'shield-lock',
         'jobs.php' => 'list-check',
