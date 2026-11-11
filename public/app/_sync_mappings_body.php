@@ -823,6 +823,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_
 }
 
 // -----------------------------------------------------------------------
+// POST: Steuer-Kontrolle der Rechnungen -- Toleranz in Prozent (Migration 0111,
+// connect_shops.invoice_tax_tolerance_percent), ADMIN-ONLY: schwaecht eine Sicherheitskontrolle
+// ab. 0 = streng (Standard). Siehe InvoiceService::taxAllowedDiff().
+// -----------------------------------------------------------------------
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_tax_tolerance' && !$isAdmin) {
+    $flashMessage = 'Die Steuer-Kontrolle kann nur im Admin-Bereich geändert werden.';
+    $flashType = 'danger';
+} elseif ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_tax_tolerance') {
+    $tolRaw = str_replace(',', '.', trim((string) ($_POST['tolerance'] ?? '0')));
+    if (!is_numeric($tolRaw) || (float) $tolRaw < 0 || (float) $tolRaw > 100) {
+        $flashMessage = 'Toleranz: bitte einen Wert zwischen 0 und 100 (Prozent) eingeben.';
+        $flashType = 'danger';
+    } else {
+        try {
+            $pdo->prepare('UPDATE connect_shops SET invoice_tax_tolerance_percent = :tol WHERE shop = :shop')
+                ->execute(['tol' => round((float) $tolRaw, 2), 'shop' => $shop]);
+            $flashMessage = (float) $tolRaw > 0
+                ? 'Steuer-Toleranz gespeichert: ' . round((float) $tolRaw, 2) . ' % der Shopify-Steuersumme.'
+                : 'Steuer-Kontrolle ist wieder streng.';
+            $flashType = 'success';
+        } catch (\Throwable) {
+            $flashMessage = 'Die Einstellung braucht die Migration 0111 (php bin/install.php).';
+            $flashType = 'danger';
+        }
+    }
+}
+
+// -----------------------------------------------------------------------
 // POST: Ausverkaufte Produkte ausblenden / wieder einblenden -- ADMIN-ONLY,
 // gleiches Muster wie der automatische Produktimport oben. Siehe
 // Connect\Sync\ProductVisibilityRunner (Migration 0073).
@@ -1083,6 +1111,15 @@ try {
     ];
 } catch (\Throwable) {
     $visibilitySettings = null;
+}
+
+// Steuer-Toleranz (Migration 0111) getrennt gelesen, null = Spalte fehlt noch
+try {
+    $taxToleranceStmt = $pdo->prepare('SELECT invoice_tax_tolerance_percent FROM connect_shops WHERE shop = :shop');
+    $taxToleranceStmt->execute(['shop' => $shop]);
+    $taxTolerancePercent = (float) $taxToleranceStmt->fetchColumn();
+} catch (\Throwable) {
+    $taxTolerancePercent = null;
 }
 
 // Card "Varianten-Import" nur zeigen, wenn ueberhaupt eine der Connections
@@ -1595,6 +1632,32 @@ require __DIR__ . '/_header.php';
                             <div class="col-12 mt-2">
                                 <button type="submit" class="btn btn-primary">Speichern</button>
                             </div>
+                        </form>
+                    <?php endif; ?>
+                </div>
+            </div>
+        </div>
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">Steuer-Kontrolle der Rechnungen (Admin-only)</h3>
+                </div>
+                <div class="card-body">
+                    <?php if ($taxTolerancePercent === null): ?>
+                        <div class="alert alert-warning mb-0">Migration 0111 ist noch nicht eingespielt.</div>
+                    <?php else: ?>
+                        <p class="text-secondary">
+                            Vor jeder Rechnung vergleicht oView die Steuersumme aus den Positionen mit Shopifys Steuersumme. Normalerweise
+                            streng (0 %, erlaubt sind 0,10 €). Hier lässt sich für diesen Shop eine Abweichung in Prozent von Shopifys
+                            Steuersumme erlauben, wenn Shopifys Zahl nachweislich nicht stimmt. Die Betrags-Kontrolle bleibt immer streng.
+                            Greift die Toleranz, steht ein Hinweis im Protokoll.
+                        </p>
+                        <form method="post" class="d-flex align-items-center gap-2" autocomplete="off">
+                            <input type="hidden" name="action" value="save_tax_tolerance">
+                            <label class="mb-0" for="tax-tolerance">Toleranz</label>
+                            <input type="text" id="tax-tolerance" name="tolerance" inputmode="decimal" class="form-control" style="width:90px" value="<?php echo htmlspecialchars((string) $taxTolerancePercent); ?>" autocomplete="off">
+                            <span class="text-secondary">% (0 = streng)</span>
+                            <button type="submit" class="btn btn-primary">Speichern</button>
                         </form>
                     <?php endif; ?>
                 </div>
