@@ -343,7 +343,7 @@ final class InvoiceService
      *
      * @param array<string, mixed> $orderRow
      */
-    private static function diagnoseOrder(array $orderRow): string
+    public static function diagnoseOrder(array $orderRow): string
     {
         $parts = [];
         foreach ((array) ($orderRow['line_items'] ?? []) as $lineItem) {

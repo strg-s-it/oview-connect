@@ -290,7 +290,7 @@ final class DocumentPipeline
                     $preparedOrder['computed_total_tax'],
                     (float) $record['total_tax'],
                     $taxDiff
-                );
+                ) . ' ' . InvoiceService::diagnoseOrder($orderRow) . ' ' . self::diagnoseRecordLines($record);
                 $out['notes'] = $notes;
                 $out['record'] = $record;
                 return $out;
@@ -310,7 +310,7 @@ final class DocumentPipeline
                     $computedGross,
                     (float) $record['total_gross'],
                     $grossDiff
-                );
+                ) . ' ' . InvoiceService::diagnoseOrder($orderRow) . ' ' . self::diagnoseRecordLines($record);
                 $out['notes'] = $notes;
                 $out['record'] = $record;
                 return $out;
@@ -339,6 +339,32 @@ final class DocumentPipeline
         $out['notes'] = $notes;
 
         return $out;
+    }
+
+    /**
+     * Diagnose fuer die Fehlermeldung der Kontrollen: die berechneten Positionen
+     * (Menge, Ausgabe-Preis, Positionssumme, Steuer), wie sie ans Zielsystem gingen.
+     *
+     * @param array<string, mixed> $record aufbereitete Bestellung
+     */
+    private static function diagnoseRecordLines(array $record): string
+    {
+        $parts = [];
+        foreach ((array) ($record['lines'] ?? []) as $line) {
+            if (!is_array($line)) {
+                continue;
+            }
+            $parts[] = sprintf(
+                '[%s | Menge %s x %s = %s | Steuer %s]',
+                mb_substr(trim((string) ($line['name'] ?? '?')), 0, 30),
+                (string) ($line['out_quantity'] ?? '?'),
+                (string) ($line['out_price'] ?? '?'),
+                (string) ($line['out_line_total'] ?? '?'),
+                (string) ($line['tax_amount'] ?? '?')
+            );
+        }
+
+        return 'Berechnete Positionen: ' . (implode(' ', $parts) ?: '-');
     }
 
     /**
