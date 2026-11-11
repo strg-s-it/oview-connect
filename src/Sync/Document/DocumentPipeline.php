@@ -284,7 +284,9 @@ final class DocumentPipeline
         // Shopifys Steuersumme (Migration 0057).
         if ($record['total_tax'] !== null) {
             $taxDiff = abs($preparedOrder['computed_total_tax'] - (float) $record['total_tax']);
-            if ($taxDiff > 0.10) {
+            if ($taxDiff > 0.10 && $taxDiff <= InvoiceService::taxAllowedDiff($shopRow, (float) $record['total_tax'])) {
+                $notes[] = sprintf('Steuer-Kontrolle: Abweichung %.2f EUR liegt innerhalb der eingestellten Toleranz (%s %%).', $taxDiff, (string) (float) $shopRow['invoice_tax_tolerance_percent']);
+            } elseif ($taxDiff > 0.10) {
                 $out['error'] = sprintf(
                     'Steuer-Kontrolle fehlgeschlagen: berechnete Steuersumme %.2f EUR weicht von Shopifys Steuersumme %.2f EUR ab (Differenz %.2f EUR) -- Beleg zur Sicherheit nicht angelegt.',
                     $preparedOrder['computed_total_tax'],

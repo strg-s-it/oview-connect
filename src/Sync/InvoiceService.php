@@ -194,7 +194,9 @@ final class InvoiceService
         if (array_key_exists('total_tax', $orderRow)) {
             $shopifyTotalTax = (float) $orderRow['total_tax'];
             $taxDiff = abs($computedTotalTax - $shopifyTotalTax);
-            if ($taxDiff > 0.10) {
+            if ($taxDiff > 0.10 && $taxDiff <= self::taxAllowedDiff($shopRow, $shopifyTotalTax)) {
+                $notes[] = sprintf('Steuer-Kontrolle: Abweichung %.2f EUR liegt innerhalb der eingestellten Toleranz (%s %%).', $taxDiff, (string) (float) $shopRow['invoice_tax_tolerance_percent']);
+            } elseif ($taxDiff > 0.10) {
                 $message = sprintf(
                     'Steuer-Kontrolle fehlgeschlagen: berechnete Steuersumme %.2f EUR weicht von Shopifys Steuersumme %.2f EUR ab (Differenz %.2f EUR) -- Rechnung zur Sicherheit nicht angelegt.',
                     $computedTotalTax,
@@ -991,7 +993,30 @@ final class InvoiceService
             $row['invoice_customer_match'] = self::CUSTOMER_MATCH_EMAIL_NAME;
         }
 
+        // Steuer-Toleranz (Migration 0111) ebenso -- ohne Spalte streng (0)
+        try {
+            $tol = $this->pdo->prepare('SELECT invoice_tax_tolerance_percent FROM connect_shops WHERE shop = :shop');
+            $tol->execute(['shop' => $shop]);
+            $row['invoice_tax_tolerance_percent'] = max(0.0, (float) $tol->fetchColumn());
+        } catch (\Throwable) {
+            $row['invoice_tax_tolerance_percent'] = 0.0;
+        }
+
         return $row;
+    }
+
+    /**
+     * Erlaubte Abweichung der Steuersumme (EUR): feste Grenze 0.10, bei eingestellter
+     * Toleranz (connect_shops.invoice_tax_tolerance_percent) mindestens dieser Anteil
+     * von Shopifys Steuersumme.
+     *
+     * @param array<string, mixed> $shopRow
+     */
+    public static function taxAllowedDiff(array $shopRow, float $shopifyTotalTax): float
+    {
+        $percent = max(0.0, (float) ($shopRow['invoice_tax_tolerance_percent'] ?? 0));
+
+        return max(0.10, abs($shopifyTotalTax) * $percent / 100);
     }
 
     /**

@@ -171,6 +171,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'set_t
 }
 
 // -----------------------------------------------------------------------
+// POST: Steuer-Toleranz je Shop (Migration 0111, connect_shops.invoice_tax_tolerance_percent).
+// 0 = streng (Standard). Nur Admin -- schwaecht die Steuer-Kontrolle der Rechnungen ab.
+// -----------------------------------------------------------------------
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'set_tax_tolerance') {
+    $tolShop = trim((string) ($_POST['shop'] ?? ''));
+    $tolRaw = str_replace(',', '.', trim((string) ($_POST['tolerance'] ?? '0')));
+    if ($tolShop === '' || !is_numeric($tolRaw) || (float) $tolRaw < 0 || (float) $tolRaw > 100) {
+        $bridgeMessage = 'Toleranz: bitte einen Wert zwischen 0 und 100 (Prozent) eingeben.';
+        $bridgeMessageType = 'danger';
+    } else {
+        try {
+            $tolUpdate = $pdo->prepare('UPDATE connect_shops SET invoice_tax_tolerance_percent = :tol WHERE shop = :shop');
+            $tolUpdate->execute(['tol' => round((float) $tolRaw, 2), 'shop' => $tolShop]);
+            $bridgeMessage = (float) $tolRaw > 0
+                ? "Steuer-Toleranz für \"{$tolShop}\": " . round((float) $tolRaw, 2) . ' % der Shopify-Steuersumme.'
+                : "Steuer-Kontrolle für \"{$tolShop}\" wieder streng.";
+            $bridgeMessageType = 'success';
+        } catch (\Throwable) {
+            $bridgeMessage = 'Die Einstellung braucht die Migration 0111 (php bin/install.php).';
+            $bridgeMessageType = 'danger';
+        }
+    }
+}
+
+// -----------------------------------------------------------------------
 // Routing-Schalter alte Welt <-> Connect (Migration 0050, Spalte
 // connect_shops.live_in_connect). Die Spalte wird VOR dem Zugriff geprueft: laeuft
 // dieser Code, bevor die Migration eingespielt ist, bleibt die Seite benutzbar
@@ -253,6 +278,17 @@ $shops = $pdo->query(
      FROM connect_shops s
      ORDER BY s.last_seen_at DESC'
 )->fetchAll();
+
+// Steuer-Toleranz je Shop (Migration 0111) -- fehlt die Spalte, bleibt die Karte ohne Feld.
+$taxToleranceByShop = [];
+$hasTaxToleranceColumn = false;
+try {
+    foreach ($pdo->query('SELECT shop, invoice_tax_tolerance_percent FROM connect_shops')->fetchAll() as $tolRow) {
+        $taxToleranceByShop[(string) $tolRow['shop']] = (float) $tolRow['invoice_tax_tolerance_percent'];
+    }
+    $hasTaxToleranceColumn = true;
+} catch (\Throwable) {
+}
 
 // Abo je Shop (Migration 0079): plan = Name-Schluessel, plan_status = none -> Shopify meldet kein
 // aktives Abo, NULL = noch nie abgefragt. Fehlt die Migration, bleibt die Spalte leer.
@@ -511,6 +547,16 @@ require dirname(__DIR__) . '/app/_header.php';
                                                 <?php endif; ?>
                                             <?php endif; ?>
                                         <?php endforeach; ?>
+                                        <?php if ($hasTaxToleranceColumn): ?>
+                                            <form method="post" class="m-0 mt-2 d-flex align-items-center gap-1" autocomplete="off">
+                                                <input type="hidden" name="action" value="set_tax_tolerance">
+                                                <input type="hidden" name="shop" value="<?php echo htmlspecialchars($row['shop']); ?>">
+                                                <label class="small text-secondary mb-0" title="Erlaubte Abweichung der Steuersumme von Shopifys Steuersumme in Prozent (0 = streng). Für Shops, bei denen Shopifys Steuersumme nach Bearbeitungen nicht stimmt.">Steuer-Toleranz</label>
+                                                <input type="text" name="tolerance" inputmode="decimal" class="form-control form-control-sm" style="width:70px" value="<?php echo htmlspecialchars((string) (float) ($taxToleranceByShop[$row['shop']] ?? 0)); ?>" autocomplete="off">
+                                                <span class="small text-secondary">%</span>
+                                                <button type="submit" class="btn btn-sm btn-outline-secondary py-0">OK</button>
+                                            </form>
+                                        <?php endif; ?>
                                     </td>
                                     <td class="text-end">
                                         <div class="d-flex flex-column align-items-end gap-1">
