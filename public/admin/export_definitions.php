@@ -47,6 +47,9 @@ const DEFINITION_TABLES = [
 
 const SECRET_COLUMN_PATTERN = '/(password|secret|token|credential|encrypted|private)/i';
 
+/** Laengere Textwerte werden im Export durch einen Platzhalter ersetzt (Logos, Base64-Bilder). */
+const MAX_VALUE_LENGTH = 20000;
+
 /**
  * @return array{rows: list<array<string, mixed>>, omitted: list<string>}|null null = Tabelle nicht lesbar
  */
@@ -60,10 +63,16 @@ function readDefinitionTable(PDO $pdo, string $table, string $orderBy): ?array
 
     $omitted = [];
     foreach ($rows as $index => $row) {
-        foreach (array_keys($row) as $column) {
+        foreach ($row as $column => $value) {
             if (preg_match(SECRET_COLUMN_PATTERN, (string) $column) === 1) {
                 $omitted[(string) $column] = true;
                 unset($rows[$index][$column]);
+                continue;
+            }
+            // Sehr lange Werte (z.B. Logos als Base64 in logo_data) bringen beim Lesen nichts
+            // und blaehen die Datei auf: durch Platzhalter mit der Laenge ersetzen.
+            if (is_string($value) && strlen($value) > MAX_VALUE_LENGTH) {
+                $rows[$index][$column] = '[gekuerzt: ' . strlen($value) . ' Zeichen]';
             }
         }
     }
