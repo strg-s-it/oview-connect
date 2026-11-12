@@ -33,6 +33,7 @@ final class WebhookRegistrar
     public const AVAILABLE_TOPICS = [
         'orders/paid' => ['Bestellung bezahlt', 'order_paid.php'],
         'orders/create' => ['Bestellung erstellt (z.B. fuer Shops ohne Direktzahlung)', 'order_created.php'],
+        'orders/fulfilled' => ['Bestellung erfuellt (versendet)', 'order_fulfilled.php'],
         'products/update' => ['Produkt aktualisiert', 'product_update.php'],
     ];
 

@@ -823,6 +823,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_
 }
 
 // -----------------------------------------------------------------------
+// POST: Rechnungs-Ausloeser -- welcher Shopify-Webhook die Rechnung erzeugt (connect_shops.invoice_trigger,
+// Migration 0106): paid | fulfilled | create. ADMIN-ONLY: bei "angelegt"/"erfuellt" werden auch unbezahlte
+// Bestellungen abgerechnet. Siehe Connect\Setup\ShopActivations::applyInvoiceTrigger().
+// -----------------------------------------------------------------------
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_invoice_trigger' && !$isAdmin) {
+    $flashMessage = 'Der Auslöser der Rechnung kann nur im Admin-Bereich geändert werden.';
+    $flashType = 'danger';
+} elseif ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_invoice_trigger') {
+    $triggerChoice = (string) ($_POST['invoice_trigger'] ?? '');
+    if (!isset(\Connect\Setup\ShopActivations::INVOICE_TRIGGER_TOPICS[$triggerChoice])) {
+        $flashMessage = 'Bitte einen der angebotenen Auslöser wählen.';
+        $flashType = 'danger';
+    } else {
+        $triggerWarning = \Connect\Setup\ShopActivations::fromEnvironment($pdo)->applyInvoiceTrigger($shop, $triggerChoice);
+        $flashMessage = 'Auslöser der Rechnung gespeichert: ' . \Connect\Setup\ShopActivations::INVOICE_TRIGGER_TOPICS[$triggerChoice] . '.';
+        $flashType = 'success';
+        if ($triggerWarning !== null) {
+            $flashMessage .= ' (Achtung: ' . $triggerWarning . ')';
+            $flashType = 'danger';
+        }
+    }
+}
+
+// -----------------------------------------------------------------------
 // POST: Steuer-Kontrolle der Rechnungen -- Toleranz in Prozent (Migration 0111,
 // connect_shops.invoice_tax_tolerance_percent), ADMIN-ONLY: schwaecht eine Sicherheitskontrolle
 // ab. 0 = streng (Standard). Siehe InvoiceService::taxAllowedDiff().
@@ -1111,6 +1135,16 @@ try {
     ];
 } catch (\Throwable) {
     $visibilitySettings = null;
+}
+
+// Rechnungs-Ausloeser (Migration 0106) und ob der Shop in Connect laeuft (sonst verarbeitet Connect keine Webhooks)
+$invoiceTrigger = \Connect\Setup\ShopActivations::invoiceTrigger($pdo, $shop);
+try {
+    $liveStmt = $pdo->prepare('SELECT live_in_connect FROM connect_shops WHERE shop = :shop');
+    $liveStmt->execute(['shop' => $shop]);
+    $shopIsLive = (int) $liveStmt->fetchColumn() === 1;
+} catch (\Throwable) {
+    $shopIsLive = false;
 }
 
 // Steuer-Toleranz (Migration 0111) getrennt gelesen, null = Spalte fehlt noch
@@ -1660,6 +1694,32 @@ require __DIR__ . '/_header.php';
                             <button type="submit" class="btn btn-primary">Speichern</button>
                         </form>
                     <?php endif; ?>
+                </div>
+            </div>
+        </div>
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">Auslöser der Rechnung (Admin-only)</h3>
+                </div>
+                <div class="card-body">
+                    <p class="text-secondary">
+                        Welcher Shopify-Webhook die Rechnung erzeugt. Standard ist „bezahlt“. Bei „erfüllt“ und „angelegt“ werden
+                        <strong>auch unbezahlte Bestellungen</strong> abgerechnet. Beim Wechsel zählen nur Bestellungen ab jetzt.
+                    </p>
+                    <?php if (!$shopIsLive): ?>
+                        <div class="alert alert-warning">Dieser Shop läuft noch in der alten Welt. Connect verarbeitet Bestell-Webhooks erst, wenn er in Connect aktiv ist.</div>
+                    <?php endif; ?>
+                    <form method="post" class="d-flex align-items-center gap-2 flex-wrap" autocomplete="off">
+                        <input type="hidden" name="action" value="save_invoice_trigger">
+                        <label class="mb-0" for="invoice-trigger">Auslöser</label>
+                        <select id="invoice-trigger" name="invoice_trigger" class="form-select" style="max-width:360px">
+                            <option value="paid" <?php echo $invoiceTrigger === 'paid' ? 'selected' : ''; ?>>Bestellung bezahlt (orders/paid, Standard)</option>
+                            <option value="fulfilled" <?php echo $invoiceTrigger === 'fulfilled' ? 'selected' : ''; ?>>Bestellung erfüllt / versendet (orders/fulfilled)</option>
+                            <option value="create" <?php echo $invoiceTrigger === 'create' ? 'selected' : ''; ?>>Bestellung angelegt (orders/create)</option>
+                        </select>
+                        <button type="submit" class="btn btn-primary">Speichern</button>
+                    </form>
                 </div>
             </div>
         </div>
