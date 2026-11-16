@@ -50,29 +50,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'fetch
     // In Etappen wie "Berechtigungen jetzt pruefen" (Umstieg): hoechstens ~45 s je Klick, in den
     // letzten 24 Std. abgefragte Shops werden uebersprungen -- der naechste Klick macht weiter.
     @set_time_limit(90);
-    $known = $contacts->all();
-    $done = 0;
-    $recent = 0;
-    $remaining = 0;
-    $failed = [];
-    $started = time();
-    foreach ($merchants as $m) {
-        $fetchedAt = isset($known[$m['shop']]['fetched_at']) ? strtotime((string) $known[$m['shop']]['fetched_at']) : false;
-        if ($fetchedAt !== false && $fetchedAt > time() - 86400 && ($known[$m['shop']]['error'] ?? null) === null) {
-            $recent++;
-            continue;
-        }
-        if (time() - $started > 45) {
-            $remaining++;
-            continue;
-        }
-        $error = $contacts->fetch($m['shop'], $m['world'] === 'legacy', $directory->legacyToken($m['shop']));
-        if ($error !== null) {
-            $failed[] = $m['shop'] . ': ' . $error;
-        } else {
-            $done++;
-        }
-    }
+    ['done' => $done, 'recent' => $recent, 'remaining' => $remaining, 'failed' => $failed] = $contacts->fetchBatch($merchants, $directory);
     $flashMessage = "{$done} Shop(s) bei Shopify abgefragt"
         . ($recent > 0 ? ", {$recent} waren schon aktuell (letzte 24 Std.)" : '') . '.'
         . ($remaining > 0 ? " Noch {$remaining} offen – bitte noch einmal klicken." : ' Alle Shops der Auswahl sind abgefragt.')

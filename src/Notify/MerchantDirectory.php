@@ -18,7 +18,8 @@ use PDO;
  * steht, zaehlt als Connect-Shop.
  *
  * Je Merchant: shop, world (live = laeuft in Connect, pending = in Connect angelegt, noch nicht
- * umgestellt, legacy = nur alte Welt), name, email + email_source, plan, plan_label, system,
+ * umgestellt, legacy = nur alte Welt), name, email + email_source, extra_emails (Shop-/Kontakt-Mail
+ * laut Shopify aus connect_shop_contacts, Migration 0108 -- siehe addresses()), plan, plan_label, system,
  * scopes_missing (null = unbekannt), setup (done/open/null), installed (Y-m-d|null),
  * stock_paused, optout, token (ok|missing|unknown: helloCash-Token mit Zugriff fuer API v2, siehe
  * Connect\Setup\TargetAccessCheck -- vorab hinterlegt, an der Connection geprueft oder, bei Shops
@@ -91,6 +92,7 @@ final class MerchantDirectory
         $optouts = $this->optouts();
         $prepared = $this->preparedTokens();
         $liveChecks = $this->legacyScopeChecks();
+        $contactEmails = $this->shopContactEmails();
         $notifier = new Notifier($this->pdo, $this->config);
 
         $merchants = [];
@@ -131,6 +133,7 @@ final class MerchantDirectory
                 'company' => $this->companyName((int) ($s['target_connection_id'] ?? 0)),
                 'email' => $email,
                 'email_source' => $source,
+                'extra_emails' => $contactEmails[$shop] ?? [],
                 'plan' => $plan,
                 'plan_label' => $plan !== null ? Plans::PLANS[$plan]['name'] : (($s['plan_status'] ?? null) === 'none' ? 'kein Abo' : 'unbekannt'),
                 'system' => $this->systemName((int) ($s['target_connection_id'] ?? 0)),
@@ -176,6 +179,7 @@ final class MerchantDirectory
                 'company' => null,
                 'email' => $row['email'],
                 'email_source' => $row['email'] !== null ? 'alte Welt' : null,
+                'extra_emails' => $contactEmails[$shop] ?? [],
                 'plan' => $row['plan'],
                 'plan_label' => $row['plan'] !== null ? Plans::PLANS[$row['plan']]['name'] : ($row['charge_name'] !== '' ? $row['charge_name'] : 'kein Abo'),
                 'system' => 'HelloCash',
@@ -660,6 +664,65 @@ final class MerchantDirectory
         }
 
         return $prepared === false ? 'missing' : 'unknown';
+    }
+
+    /**
+     * Alle Adressen, an die eine Nachricht fuer diesen Merchant geht: die bekannte Adresse (email) und,
+     * wenn gewuenscht, die Shop- und Kontakt-Mail laut Shopify. Ohne Doppelte (Gross-/Kleinschreibung egal).
+     *
+     * @param array<string, mixed> $m Eintrag aus all()
+     * @return list<string>
+     */
+    public static function addresses(array $m, bool $withContacts): array
+    {
+        $candidates = [];
+        if (($m['email'] ?? null) !== null) {
+            $candidates[] = (string) $m['email'];
+        }
+        if ($withContacts) {
+            foreach ((array) ($m['extra_emails'] ?? []) as $extra) {
+                $candidates[] = (string) $extra;
+            }
+        }
+        $out = [];
+        $seen = [];
+        foreach ($candidates as $address) {
+            $key = mb_strtolower($address);
+            if (!isset($seen[$key])) {
+                $seen[$key] = true;
+                $out[] = $address;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * Shop- und Kontakt-Mail je Shop laut Shopify (connect_shop_contacts, gefuellt ueber "Kontaktdaten abrufen").
+     *
+     * @return array<string, list<string>>
+     */
+    private function shopContactEmails(): array
+    {
+        try {
+            $out = [];
+            foreach ($this->pdo->query('SELECT shop, email, contact_email FROM connect_shop_contacts')->fetchAll() as $row) {
+                $list = [];
+                foreach ([$row['email'] ?? null, $row['contact_email'] ?? null] as $candidate) {
+                    $candidate = trim((string) $candidate);
+                    if ($candidate !== '' && filter_var($candidate, FILTER_VALIDATE_EMAIL) !== false && !in_array($candidate, $list, true)) {
+                        $list[] = $candidate;
+                    }
+                }
+                if ($list !== []) {
+                    $out[(string) $row['shop']] = $list;
+                }
+            }
+
+            return $out;
+        } catch (\PDOException) {
+            return []; // Migration 0108 fehlt
+        }
     }
 
     /** @return array<string, true> */

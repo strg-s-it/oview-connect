@@ -89,9 +89,10 @@ final class MessageService
      * Empfaenger festschreiben und zum Versand freigeben.
      *
      * @param list<array<string, mixed>> $merchants
+     * @param bool $withContacts auch an Shop- und Kontakt-Mail laut Shopify (MerchantDirectory::addresses)
      * @return array{queued: int, skipped: int}
      */
-    public function queue(int $messageId, array $merchants): array
+    public function queue(int $messageId, array $merchants, bool $withContacts = false): array
     {
         $message = $this->message($messageId);
         if ($message === null || $message['status'] !== 'draft') {
@@ -105,7 +106,8 @@ final class MessageService
         $skipped = 0;
         foreach ($merchants as $m) {
             $reason = null;
-            if ($m['email'] === null) {
+            $email = self::joinAddresses(MerchantDirectory::addresses($m, $withContacts));
+            if ($email === null) {
                 $reason = 'keine E-Mail-Adresse';
             } elseif ($message['kind'] === 'info' && $m['optout']) {
                 $reason = 'von Informations-Mails abgemeldet';
@@ -114,7 +116,7 @@ final class MessageService
                 'message_id' => $messageId,
                 'shop' => $m['shop'],
                 'world' => $m['world'] === 'legacy' ? 'legacy' : 'connect',
-                'email' => $m['email'],
+                'email' => $email,
                 'status' => $reason === null ? 'pending' : 'skipped',
                 'error' => $reason,
             ]);
@@ -127,7 +129,7 @@ final class MessageService
                 'message_queued',
                 $reason === null,
                 $reason === null
-                    ? 'Nachricht "' . $message['subject'] . '" zum Versand an ' . $m['email'] . ' freigegeben.'
+                    ? 'Nachricht "' . $message['subject'] . '" zum Versand an ' . $email . ' freigegeben.'
                     : 'Nachricht "' . $message['subject'] . '" nicht versendet: ' . $reason . '.'
             );
         }
@@ -297,6 +299,25 @@ final class MessageService
         return substr(hash_hmac('sha256', 'prepare|' . $shop . '|' . $expires, $this->config->require('CONNECT_ENCRYPTION_KEY')), 0, 40);
     }
 
+    /**
+     * Gueltig ist die Signatur aus der Mail (prepareSignature) ODER die der alten Welt: connect_prepare.php
+     * (Banner in der alten App) signiert mit einem aus dem App-Secret abgeleiteten Schluessel, ganz wie der
+     * Handoff in connect_beta.php -- die alte Welt kennt CONNECT_ENCRYPTION_KEY nicht.
+     */
+    public function prepareSignatureValid(string $shop, int $expires, string $sig): bool
+    {
+        if (hash_equals($this->prepareSignature($shop, $expires), $sig)) {
+            return true;
+        }
+        $secret = $this->config->optional('CONNECT_SHOPIFY_API_SECRET', '');
+        if ($secret === '') {
+            return false;
+        }
+        $key = hash_hmac('sha256', 'oview-connect-prepare-v1', $secret);
+
+        return hash_equals(hash_hmac('sha256', 'prepare|' . $shop . '|' . $expires, $key), $sig);
+    }
+
     public function optoutSignature(string $shop): string
     {
         return substr(hash_hmac('sha256', 'optout|' . $shop, $this->config->require('CONNECT_ENCRYPTION_KEY')), 0, 32);
@@ -333,10 +354,77 @@ final class MessageService
         ];
     }
 
+    /**
+     * Adressen fuer connect_message_recipients.email (VARCHAR 190), durch Komma getrennt. Was nicht mehr
+     * passt, entfaellt (die bekannte Adresse steht immer vorn).
+     *
+     * @param list<string> $addresses
+     */
+    private static function joinAddresses(array $addresses): ?string
+    {
+        $joined = '';
+        foreach ($addresses as $address) {
+            $next = $joined === '' ? $address : $joined . ', ' . $address;
+            if (strlen($next) > 190) {
+                break;
+            }
+            $joined = $next;
+        }
+
+        return $joined !== '' ? $joined : null;
+    }
+
+    /**
+     * Pruefung der Absenderdomain (SPF, DMARC) per DNS -- Hinweis fuer die Nachrichten-Seite, ob Mails
+     * eher im Spam landen. DKIM laesst sich ohne den Selector nicht pruefen.
+     *
+     * @return list<array{label: string, ok: bool|null, text: string}>
+     */
+    public function deliverabilityHints(): array
+    {
+        $at = strrpos($this->fromAddress(), '@');
+        $domain = $at !== false ? substr($this->fromAddress(), $at + 1) : '';
+        if ($domain === '' || !function_exists('dns_get_record')) {
+            return [];
+        }
+        $txt = static function (string $name): ?array {
+            try {
+                $records = @dns_get_record($name, DNS_TXT);
+            } catch (\Throwable) {
+                return null;
+            }
+            if ($records === false) {
+                return null;
+            }
+
+            return array_map(static fn (array $r): string => (string) ($r['txt'] ?? ''), $records);
+        };
+        $hints = [];
+        $spf = $txt($domain);
+        $hints[] = $spf === null
+            ? ['label' => 'SPF', 'ok' => null, 'text' => 'DNS-Abfrage für ' . $domain . ' nicht möglich']
+            : (array_filter($spf, static fn (string $t): bool => stripos($t, 'v=spf1') === 0) !== []
+                ? ['label' => 'SPF', 'ok' => true, 'text' => 'für ' . $domain . ' vorhanden']
+                : ['label' => 'SPF', 'ok' => false, 'text' => 'für ' . $domain . ' fehlt – Mails landen eher im Spam']);
+        $dmarc = $txt('_dmarc.' . $domain);
+        $hints[] = $dmarc === null
+            ? ['label' => 'DMARC', 'ok' => null, 'text' => 'DNS-Abfrage nicht möglich']
+            : (array_filter($dmarc, static fn (string $t): bool => stripos($t, 'v=DMARC1') === 0) !== []
+                ? ['label' => 'DMARC', 'ok' => true, 'text' => 'für ' . $domain . ' vorhanden']
+                : ['label' => 'DMARC', 'ok' => false, 'text' => 'für ' . $domain . ' fehlt – Gmail/Outlook werten das zunehmend negativ']);
+
+        return $hints;
+    }
+
     /** @return string|null Fehlermeldung, null = versendet */
     private function sendMail(string $to, string $subject, string $text, string $html): ?string
     {
         $from = $this->fromAddress();
+        $recipients = array_values(array_filter(array_map('trim', explode(',', $to)), static fn (string $a): bool => $a !== ''));
+        if ($recipients === []) {
+            return 'keine Empfängeradresse';
+        }
+        $to = implode(', ', $recipients);
         if (!$this->smtpConfigured()) {
             $sent = (new Notifier($this->pdo, $this->config))->send($to, $subject, $text, $html);
 
@@ -362,7 +450,9 @@ final class MessageService
             $senderName = Branding::load($this->pdo, $this->config)->shortName;
             $mailer->setFrom($from, $senderName);
             $mailer->addReplyTo($from, $senderName);
-            $mailer->addAddress($to);
+            foreach ($recipients as $recipient) {
+                $mailer->addAddress($recipient);
+            }
             $mailer->Subject = $subject;
             $mailer->isHTML(true);
             $mailer->Body = $html;

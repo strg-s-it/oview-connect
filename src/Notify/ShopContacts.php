@@ -15,6 +15,9 @@ use PDO;
  * CSV-Export (admin/export.php, Akquise und Umstieg). Nur lesend gegen Shopify, Ergebnis je Shop
  * in connect_shop_contacts (Migration 0108).
  *
+ * Die gemerkten Adressen (email, contact_email) nutzen auch die Nachrichten (admin/messages.php,
+ * "auch an Shop-Adressen laut Shopify", MerchantDirectory::addresses).
+ *
  * Token: Connect-Shops ueber TokenRefresher::freshCredentials(), Shops nur der alten Welt mit dem
  * Token aus oview_stores (MerchantDirectory::legacyToken()).
  */
@@ -48,6 +51,40 @@ final class ShopContacts
         } catch (\PDOException) {
             return []; // Migration 0108 fehlt
         }
+    }
+
+    /**
+     * Kontaktdaten mehrerer Merchants in einer Etappe abfragen: hoechstens $budgetSeconds je Aufruf,
+     * in den letzten 24 Std. fehlerfrei abgefragte Shops werden uebersprungen -- der naechste Aufruf macht weiter.
+     *
+     * @param list<array<string, mixed>> $merchants Eintraege aus MerchantDirectory::all()
+     * @return array{done: int, recent: int, remaining: int, failed: list<string>}
+     */
+    public function fetchBatch(array $merchants, MerchantDirectory $directory, int $budgetSeconds = 45): array
+    {
+        $known = $this->all();
+        $result = ['done' => 0, 'recent' => 0, 'remaining' => 0, 'failed' => []];
+        $started = time();
+        foreach ($merchants as $m) {
+            $shop = (string) $m['shop'];
+            $fetchedAt = isset($known[$shop]['fetched_at']) ? strtotime((string) $known[$shop]['fetched_at']) : false;
+            if ($fetchedAt !== false && $fetchedAt > time() - 86400 && ($known[$shop]['error'] ?? null) === null) {
+                $result['recent']++;
+                continue;
+            }
+            if (time() - $started > $budgetSeconds) {
+                $result['remaining']++;
+                continue;
+            }
+            $error = $this->fetch($shop, $m['world'] === 'legacy', $directory->legacyToken($shop));
+            if ($error !== null) {
+                $result['failed'][] = $shop . ': ' . $error;
+            } else {
+                $result['done']++;
+            }
+        }
+
+        return $result;
     }
 
     /**

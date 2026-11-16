@@ -56,7 +56,7 @@ $shop = (string) ($_GET['shop'] ?? $_POST['shop'] ?? '');
 $expires = (int) ($_GET['exp'] ?? $_POST['exp'] ?? 0);
 $sig = (string) ($_GET['sig'] ?? $_POST['sig'] ?? '');
 $validFormat = $shop !== '' && preg_match('/^[a-zA-Z0-9\-]+$/', $shop) === 1;
-$signatureOk = $validFormat && hash_equals($service->prepareSignature($shop, $expires), $sig);
+$signatureOk = $validFormat && $service->prepareSignatureValid($shop, $expires, $sig);
 $expired = $signatureOk && $expires < time();
 $valid = $signatureOk && !$expired;
 

@@ -20,6 +20,8 @@ use Connect\Config;
 use Connect\Database;
 use Connect\Notify\MerchantDirectory;
 use Connect\Notify\MessageService;
+use Connect\Notify\ShopContacts;
+use Connect\Security\Crypto;
 
 $config = Config::load();
 $pdo = Database::connect($config)->pdo();
@@ -44,6 +46,13 @@ $templates = [
         'subject' => 'oView: Bitte Umstieg auf die neue Technik vorbereiten (5 Minuten)',
         'body' => "Hallo {firma},\n\nwir stellen oView für deinen Shop {shop} in den nächsten Wochen auf eine neue, schnellere Technik um. Damit das reibungslos klappt, brauchen wir zwei kleine Dinge von dir:\n\n1. Neue Berechtigungen in Shopify bestätigen\n2. Den API-Token in helloCash neu generieren und eintragen (helloCash vergibt Berechtigungen inzwischen je Token, dein bisheriger hat nicht alle)\n\nAuf dieser Seite führen wir dich Schritt für Schritt durch – das dauert etwa fünf Minuten:\n{vorbereitung_link}\n\nWichtig: Sobald du in helloCash auf „Neu generieren“ klickst, funktioniert der bisherige Token nicht mehr. Trag den neuen deshalb gleich danach auf dieser Seite ein, dann läuft alles ohne Unterbrechung weiter.\n\nDer Link ist persönlich und 60 Tage gültig, bitte nicht weitergeben.\n\nBei Fragen antworte einfach auf diese Mail.\n\nLiebe Grüße\ndein oView-Team",
         'filter' => ['world' => ['legacy', 'pending'], 'token' => 'open'],
+    ],
+    'reminder' => [
+        'label' => 'Umstieg: Erinnerung (an alle Adressen)',
+        'kind' => 'service',
+        'subject' => 'oView: Bitte stelle bis 31.12. um – sonst stoppt der Sync für {shop}',
+        'body' => "Hallo {firma},\n\nder bisherige oView-Zugang für deinen Shop {shop} läuft Ende Dezember 2026 aus. Wenn du nicht umstellst, werden danach weder Lagerbestand noch Rechnungen zwischen Shopify und helloCash abgeglichen.\n\nDie Umstellung dauert etwa fünf Minuten. Auf dieser Seite führen wir dich Schritt für Schritt durch (Shopify-Berechtigungen bestätigen, neuen helloCash-Token eintragen):\n{vorbereitung_link}\n\nDu kannst auch jederzeit in oView im Shopify-Admin auf „Jetzt umstellen“ klicken:\n{app_link}\n\nWichtig: Sobald du in helloCash auf „Neu generieren“ klickst, funktioniert der bisherige Token nicht mehr. Trag den neuen deshalb gleich danach auf der Seite ein.\n\nWenn du diese Mail an die falsche Person erreicht: bitte leite sie an den Inhaber des Shops weiter. Bei Fragen antworte einfach auf diese Mail.\n\nLiebe Grüße\ndein oView-Team",
+        'filter' => ['world' => ['legacy', 'pending'], 'contacts' => 1],
     ],
     'maintenance' => [
         'label' => 'Wartungshinweis',
@@ -70,6 +79,7 @@ $readFilter = static function (array $source): array {
         'installed_from' => preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) ($source['installed_from'] ?? '')) ? (string) $source['installed_from'] : '',
         'installed_to' => preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) ($source['installed_to'] ?? '')) ? (string) $source['installed_to'] : '',
         'stock_paused' => !empty($source['stock_paused']) ? 1 : 0,
+        'contacts' => !empty($source['contacts']) ? 1 : 0,
         'q' => trim((string) ($source['q'] ?? '')),
         'exclude' => array_values(array_map('strval', (array) ($source['exclude'] ?? []))),
     ];
@@ -147,6 +157,15 @@ if ($message !== null && $message['status'] === 'draft' && $_SERVER['REQUEST_MET
                 $flashMessage = $error === null ? "Testmail (wie für {$sample['shop']}) an {$adminEmail} verschickt." : 'Testmail fehlgeschlagen: ' . $error;
                 $flashType = $error === null ? 'success' : 'danger';
             }
+        } elseif ($action === 'fetch_contacts') {
+            // Etappenweise wie auf der Export-Seite: hoechstens ~45 s je Klick, der naechste Klick macht weiter
+            @set_time_limit(90);
+            $fetched = (new ShopContacts($pdo, new Crypto($config->require('CONNECT_ENCRYPTION_KEY')), $config))->fetchBatch($recipients, $directory);
+            $flashMessage = "{$fetched['done']} Shop(s) bei Shopify abgefragt"
+                . ($fetched['recent'] > 0 ? ", {$fetched['recent']} waren schon aktuell (letzte 24 Std.)" : '') . '.'
+                . ($fetched['remaining'] > 0 ? " Noch {$fetched['remaining']} offen – bitte noch einmal klicken." : ' Alle Shops der Auswahl sind abgefragt.')
+                . ($fetched['failed'] !== [] ? ' Nicht abrufbar: ' . implode(' · ', array_slice($fetched['failed'], 0, 10)) . (count($fetched['failed']) > 10 ? ' …' : '') : '');
+            $flashType = $fetched['remaining'] > 0 || $fetched['failed'] !== [] ? 'warning' : 'success';
         } elseif ($action === 'send') {
             if (empty($_POST['confirm'])) {
                 $flashMessage = 'Bitte den Versand bestätigen (Häkchen).';
@@ -155,7 +174,7 @@ if ($message !== null && $message['status'] === 'draft' && $_SERVER['REQUEST_MET
                 $flashMessage = 'Keine Empfänger ausgewählt.';
                 $flashType = 'danger';
             } else {
-                $result = $service->queue($id, $recipients);
+                $result = $service->queue($id, $recipients, (bool) $filter['contacts']);
                 $flashMessage = "Zum Versand freigegeben: {$result['queued']} Mail(s), {$result['skipped']} übersprungen (keine Adresse bzw. abgemeldet). Der Versand läuft im Hintergrund (ca. 20 je Minute).";
                 $flashType = 'success';
                 $message = $service->message($id);
@@ -183,6 +202,14 @@ require dirname(__DIR__) . '/app/_header.php';
         Ohne sie gehen die Mails über die Mailfunktion des Servers und landen eher im Spam.
     </div>
 <?php endif; ?>
+<?php foreach ($service->deliverabilityHints() as $hint): ?>
+    <?php if ($hint['ok'] !== true): ?>
+        <div class="alert alert-<?php echo $hint['ok'] === false ? 'warning' : 'secondary'; ?> py-2">
+            <strong><?php echo $e($hint['label']); ?></strong> (Absenderdomain): <?php echo $e($hint['text']); ?>.
+            <?php if ($hint['ok'] === false): ?>Bitte beim DNS-Anbieter nachtragen, sonst werden die Mails eher als Spam einsortiert.<?php endif; ?>
+        </div>
+    <?php endif; ?>
+<?php endforeach; ?>
 
 <?php if ($message === null): ?>
     <?php
@@ -290,6 +317,7 @@ require dirname(__DIR__) . '/app/_header.php';
     $all = $matches = $recipients = $systems = [];
     $preview = $rendered = null;
     $withEmail = 0;
+    $withExtra = 0;
     // Letzte gesendete Nachricht je Shop (wie auf der Umstieg-Seite)
     $lastMessages = [];
     try {
@@ -314,7 +342,8 @@ require dirname(__DIR__) . '/app/_header.php';
         }
         $preview ??= $recipients[0] ?? null;
         $rendered = $preview !== null ? $service->render($message, $preview) : null;
-        $withEmail = count(array_filter($recipients, static fn (array $m): bool => $m['email'] !== null && !($message['kind'] === 'info' && $m['optout'])));
+        $withEmail = count(array_filter($recipients, static fn (array $m): bool => MerchantDirectory::addresses($m, (bool) $filter['contacts']) !== [] && !($message['kind'] === 'info' && $m['optout'])));
+        $withExtra = count(array_filter($recipients, static fn (array $m): bool => count(MerchantDirectory::addresses($m, true)) > count(MerchantDirectory::addresses($m, false))));
     } catch (\Throwable $ex) {
         error_log('[messages] ' . $ex);
         echo '<div class="alert alert-danger">Empfängerliste konnte nicht geladen werden: ' . $e($ex->getMessage()) . ' <span class="text-secondary">(' . $e(basename($ex->getFile()) . ':' . $ex->getLine()) . ')</span></div>';
@@ -434,6 +463,14 @@ require dirname(__DIR__) . '/app/_header.php';
                         <div class="col-md-4"><input type="search" name="q" class="form-control form-control-sm" value="<?php echo $e($filter['q']); ?>" placeholder="Suche Shop, Name, E-Mail"></div>
                     </div>
                     <label class="form-check mb-0"><input type="checkbox" class="form-check-input" name="stock_paused" value="1" <?php echo $filter['stock_paused'] ? 'checked' : ''; ?>> <span class="form-check-label">nur Shops mit angehaltenem Lagerabgleich</span></label>
+                    <div class="border rounded p-2">
+                        <label class="form-check mb-1"><input type="checkbox" class="form-check-input" name="contacts" value="1" <?php echo $filter['contacts'] ? 'checked' : ''; ?>> <span class="form-check-label">Auch an die Shop-Adressen laut Shopify senden <span class="text-secondary small">(Shop-E-Mail und Kontakt-E-Mail – erreicht oft eine andere Person als die Adresse aus der Installation)</span></span></label>
+                        <div class="small text-secondary">
+                            Bei <strong><?php echo (int) $withExtra; ?></strong> der ausgewählten Shops gibt es zusätzliche Adressen aus Shopify.
+                            Fehlt die Zahl oder ist sie klein: erst die Kontaktdaten abrufen (nur lesend).
+                            <button type="submit" name="action" value="fetch_contacts" class="btn btn-sm ms-1">Kontaktdaten bei Shopify abrufen</button>
+                        </div>
+                    </div>
                     <div><button type="submit" name="action" value="save" class="btn btn-sm">Filter anwenden</button></div>
                 </div>
                 <div class="card-body border-top pt-2 pb-2 small d-flex flex-wrap gap-2 align-items-center">
@@ -449,14 +486,19 @@ require dirname(__DIR__) . '/app/_header.php';
                                 <?php $excluded = in_array($m['shop'], $filter['exclude'], true); ?>
                                 <tr class="<?php echo $excluded ? 'text-secondary' : ''; ?>">
                                     <td>
-                                        <input type="checkbox" class="form-check-input msg-include" data-exclude="ex-<?php echo $e(md5($m['shop'])); ?>" data-mail="<?php echo $m['email'] !== null && !($message['kind'] === 'info' && $m['optout']) ? '1' : '0'; ?>" <?php echo $excluded ? '' : 'checked'; ?> onchange="document.getElementById(this.dataset.exclude).disabled=this.checked; msgRecount();" aria-label="<?php echo $e($m['shop']); ?> einbeziehen">
+                                        <input type="checkbox" class="form-check-input msg-include" data-exclude="ex-<?php echo $e(md5($m['shop'])); ?>" data-mail="<?php echo MerchantDirectory::addresses($m, (bool) $filter['contacts']) !== [] && !($message['kind'] === 'info' && $m['optout']) ? '1' : '0'; ?>" <?php echo $excluded ? '' : 'checked'; ?> onchange="document.getElementById(this.dataset.exclude).disabled=this.checked; msgRecount();" aria-label="<?php echo $e($m['shop']); ?> einbeziehen">
                                         <input type="hidden" id="ex-<?php echo $e(md5($m['shop'])); ?>" name="exclude[]" value="<?php echo $e($m['shop']); ?>" <?php echo $excluded ? '' : 'disabled'; ?>>
                                     </td>
                                     <td><?php echo $e($m['shop']); ?><?php echo $m['company'] ? '<div class="small text-secondary">' . $e($m['company']) . '</div>' : ''; ?></td>
                                     <td class="small"><?php echo $e(['live' => 'Connect', 'pending' => 'Connect (nicht umgestellt)', 'legacy' => 'alte Welt'][$m['world']]); ?></td>
                                     <td class="small">
-                                        <?php if ($m['email'] === null): ?><span class="text-danger">keine</span>
-                                        <?php else: ?><?php echo $e($m['email']); ?> <span class="text-secondary">(<?php echo $e($m['email_source']); ?>)</span><?php endif; ?>
+                                        <?php $rowAddresses = MerchantDirectory::addresses($m, (bool) $filter['contacts']); ?>
+                                        <?php if ($rowAddresses === []): ?><span class="text-danger">keine</span>
+                                        <?php else: ?>
+                                            <?php foreach ($rowAddresses as $i => $address): ?>
+                                                <div><?php echo $e($address); ?><?php echo $i === 0 && $m['email'] !== null ? ' <span class="text-secondary">(' . $e($m['email_source']) . ')</span>' : ' <span class="text-secondary">(Shopify)</span>'; ?></div>
+                                            <?php endforeach; ?>
+                                        <?php endif; ?>
                                         <?php echo $m['optout'] ? '<span class="badge bg-secondary-lt">abgemeldet</span>' : ''; ?>
                                     </td>
                                     <td class="small"><?php echo $e($m['plan_label']); ?></td>
