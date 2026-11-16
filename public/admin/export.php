@@ -71,6 +71,7 @@ foreach ($merchants as $m) {
         'myshopify' => $m['shop'] . '.myshopify.com',
         'email' => (string) ($c['email'] ?? $m['email'] ?? ''),
         'contact_email' => (string) ($c['contact_email'] ?? ''),
+        'known_email' => (string) ($m['email'] ?? ''), // Adresse aus Installation/Benachrichtigungen (alte Welt oder Connect)
         'phone' => (string) ($c['phone'] ?? ''),
         'address' => (string) ($c['address'] ?? ''),
         'country' => (string) ($c['country'] ?? ''),
@@ -183,7 +184,15 @@ require dirname(__DIR__) . '/app/_header.php';
                         <td><?php echo $e($r['name']); ?><?php echo $r['company'] !== '' && $r['company'] !== $r['name'] ? '<div class="small text-secondary">' . $e($r['company']) . '</div>' : ''; ?></td>
                         <td class="small"><?php echo $r['url'] !== '' ? $e($r['url']) : '<span class="text-secondary">–</span>'; ?></td>
                         <td class="small"><?php echo $r['phone'] !== '' ? $e($r['phone']) : '<span class="text-secondary">–</span>'; ?></td>
-                        <td class="small"><?php echo $r['email'] !== '' ? $e($r['email']) : '<span class="text-secondary">–</span>'; ?></td>
+                        <td class="small">
+                            <?php echo $r['email'] !== '' ? $e($r['email']) : '<span class="text-secondary">–</span>'; ?>
+                            <?php if ($r['contact_email'] !== '' && strcasecmp($r['contact_email'], $r['email']) !== 0): ?>
+                                <div><?php echo $e($r['contact_email']); ?> <span class="badge bg-blue-lt">weitere</span></div>
+                            <?php endif; ?>
+                            <?php if ($r['known_email'] !== '' && strcasecmp($r['known_email'], $r['email']) !== 0 && strcasecmp($r['known_email'], $r['contact_email']) !== 0): ?>
+                                <div><?php echo $e($r['known_email']); ?> <span class="badge bg-secondary-lt">Installation</span></div>
+                            <?php endif; ?>
+                        </td>
                         <td class="small text-secondary">
                             <?php if ($r['error'] !== ''): ?><span class="text-danger"><?php echo $e($r['error']); ?></span>
                             <?php else: ?><?php echo $r['fetched_at'] !== '' ? $e(substr($r['fetched_at'], 0, 16)) : 'noch nicht'; ?><?php endif; ?>
