@@ -25,7 +25,7 @@ final class MerchantOverview
     public function build(string $shop): array
     {
         $s = $this->row(
-            'SELECT s.*, c.status AS target_status, c.last_test_result AS target_test_result, t.name AS target_name
+            'SELECT s.*, c.status AS target_status, c.health_status AS target_health, c.last_test_result AS target_test_result, t.name AS target_name
              FROM connect_shops s
              LEFT JOIN connect_connections c ON c.id = s.target_connection_id
              LEFT JOIN connect_connector_types t ON t.id = c.connector_type_id
@@ -39,7 +39,8 @@ final class MerchantOverview
         $products = $this->productTile($shop, $s);
 
         $problems = [];
-        if (($s['target_connection_id'] ?? null) !== null && ($s['target_status'] ?? '') === 'error') {
+        // Manueller Test (status) ODER Heartbeat (health_status, alle 10 Min) meldet Fehler
+        if (($s['target_connection_id'] ?? null) !== null && (($s['target_status'] ?? '') === 'error' || ($s['target_health'] ?? '') === 'error')) {
             $problems[] = [
                 'title' => 'Die Verbindung zu ' . $targetName . ' funktioniert nicht',
                 'text' => $targetName . ' hat die Anfrage abgelehnt. Meist ist der Schlüssel abgelaufen oder wurde geändert.',
