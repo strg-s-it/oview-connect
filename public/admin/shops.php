@@ -455,7 +455,11 @@ require dirname(__DIR__) . '/app/_header.php';
                                             </div>
                                             <?php if ($firstError !== null): ?>
                                                 <div class="small text-danger mt-1" style="max-width:230px" title="<?php echo htmlspecialchars((string) ($firstError['health_message'] ?? '')); ?>">
-                                                    <?php echo htmlspecialchars(mb_strimwidth(preg_replace('/^Verbindung fehlgeschlagen:\s*/', '', (string) ($firstError['health_message'] ?? '')) ?? '', 0, 70, '…')); ?>
+                                                    <?php if (\Connect\Shopify\ShopBlock::matches((string) ($firstError['health_message'] ?? ''))): ?>
+                                                        <?php echo htmlspecialchars(\Connect\Shopify\ShopBlock::label((string) $firstError['health_message'])); ?> – Aufhebung nur durch Shopify, oView versucht es alle <?php echo \Connect\Shopify\ShopBlock::RETRY_HOURS; ?> Std. neu
+                                                    <?php else: ?>
+                                                        <?php echo htmlspecialchars(mb_strimwidth(preg_replace('/^Verbindung fehlgeschlagen:\s*/', '', (string) ($firstError['health_message'] ?? '')) ?? '', 0, 70, '…')); ?>
+                                                    <?php endif; ?>
                                                 </div>
                                                 <?php
                                                 // Mail-Stand zur Störung (Connect\Sync\ConnectionHealth): Ziel-Connection -> Händler + Kopie an Admin

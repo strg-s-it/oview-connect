@@ -86,6 +86,19 @@ function enqueueDueMappings(PDO $pdo): void
             continue;
         }
 
+        // Von Shopify gesperrter Shop ("under review" / "Unavailable Shop"): nur alle RETRY_HOURS Stunden
+        // erneut versuchen statt zum Intervall -- sonst Fehlerflut, und die Sperre hebt nur Shopify auf.
+        $lastRunStmt = $pdo->prepare(
+            'SELECT status, error_summary, ended_at FROM connect_sync_runs WHERE sync_mapping_id = :id ORDER BY id DESC LIMIT 1'
+        );
+        $lastRunStmt->execute(['id' => $mappingId]);
+        $lastRun = $lastRunStmt->fetch();
+        if ($lastRun !== false && $lastRun['status'] === 'error' && $lastRun['ended_at'] !== null
+            && \Connect\Shopify\ShopBlock::matches((string) $lastRun['error_summary'])
+            && strtotime((string) $lastRun['ended_at']) > time() - \Connect\Shopify\ShopBlock::RETRY_HOURS * 3600) {
+            continue;
+        }
+
         $lastStmt = $pdo->prepare('SELECT MAX(scheduled_for) FROM connect_sync_jobs WHERE sync_mapping_id = :id');
         $lastStmt->execute(['id' => $mappingId]);
         $lastScheduledFor = $lastStmt->fetchColumn();
@@ -375,8 +388,13 @@ while (microtime(true) - $startedAt < $timeBudgetSeconds) {
         fwrite(STDOUT, "Job {$jobId} (Shop {$mapping['shop']}, Mapping \"{$mapping['name']}\") erfolgreich.\n");
     } catch (\Throwable $e) {
         finishJob($pdo, $jobId, 'error');
-        fwrite(STDERR, "Job {$jobId} (Shop {$mapping['shop']}, Mapping \"{$mapping['name']}\") fehlgeschlagen: {$e->getMessage()}\n");
-        $exitCode = 1;
+        if (\Connect\Shopify\ShopBlock::matches($e->getMessage())) {
+            // Von Shopify gesperrt: kein Fehlerfall fuer Cron (keine Mail, Exit 0), steht im Protokoll und in der Shopliste
+            fwrite(STDOUT, "Job {$jobId} (Shop {$mapping['shop']}, Mapping \"{$mapping['name']}\") uebersprungen, von Shopify gesperrt: {$e->getMessage()}\n");
+        } else {
+            fwrite(STDERR, "Job {$jobId} (Shop {$mapping['shop']}, Mapping \"{$mapping['name']}\") fehlgeschlagen: {$e->getMessage()}\n");
+            $exitCode = 1;
+        }
     }
 }
 
