@@ -372,10 +372,10 @@ while (microtime(true) - $startedAt < $timeBudgetSeconds) {
     try {
         $runner->run($mapping, $jobId);
         finishJob($pdo, $jobId, 'done');
-        fwrite(STDOUT, "Job {$jobId} (Mapping \"{$mapping['name']}\") erfolgreich.\n");
+        fwrite(STDOUT, "Job {$jobId} (Shop {$mapping['shop']}, Mapping \"{$mapping['name']}\") erfolgreich.\n");
     } catch (\Throwable $e) {
         finishJob($pdo, $jobId, 'error');
-        fwrite(STDERR, "Job {$jobId} (Mapping \"{$mapping['name']}\") fehlgeschlagen: {$e->getMessage()}\n");
+        fwrite(STDERR, "Job {$jobId} (Shop {$mapping['shop']}, Mapping \"{$mapping['name']}\") fehlgeschlagen: {$e->getMessage()}\n");
         $exitCode = 1;
     }
 }
