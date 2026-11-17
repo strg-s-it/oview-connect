@@ -281,7 +281,7 @@ $healthByShop = [];
 $healthAvailable = true;
 try {
     foreach ($pdo->query(
-        "SELECT c.id, c.shop, c.label, c.health_status, c.health_checked_at, c.health_since, c.health_message, t.type_key, t.name AS type_name
+        "SELECT c.id, c.shop, c.label, c.health_status, c.health_checked_at, c.health_since, c.health_message, c.health_failures, c.health_notified_at, t.type_key, t.name AS type_name
          FROM connect_connections c JOIN connect_connector_types t ON t.id = c.connector_type_id"
     )->fetchAll() as $healthRow) {
         $healthByShop[(string) $healthRow['shop']][] = $healthRow;
@@ -457,6 +457,21 @@ require dirname(__DIR__) . '/app/_header.php';
                                                 <div class="small text-danger mt-1" style="max-width:230px" title="<?php echo htmlspecialchars((string) ($firstError['health_message'] ?? '')); ?>">
                                                     <?php echo htmlspecialchars(mb_strimwidth(preg_replace('/^Verbindung fehlgeschlagen:\s*/', '', (string) ($firstError['health_message'] ?? '')) ?? '', 0, 70, '…')); ?>
                                                 </div>
+                                                <?php
+                                                // Mail-Stand zur Störung (Connect\Sync\ConnectionHealth): Ziel-Connection -> Händler + Kopie an Admin
+                                                // ab dem 3. Fehlschlag, Shopify -> nur Admin ab dem 2.
+                                                $errIsTarget = $targetHealth !== null && (int) $firstError['id'] === (int) $targetHealth['id'];
+                                                $errThreshold = $errIsTarget ? 3 : 2;
+                                                $errFailures = (int) ($firstError['health_failures'] ?? 0);
+                                                if ($firstError['health_notified_at'] !== null) {
+                                                    $mailInfo = ($errIsTarget ? 'Mail an Händler (Kopie Admin)' : 'Mail an Admin') . ' gesendet ' . date('d.m. H:i', (int) strtotime((string) $firstError['health_notified_at']));
+                                                } elseif (!$isLive) {
+                                                    $mailInfo = 'Keine Mail: Shop läuft in der alten Welt';
+                                                } else {
+                                                    $mailInfo = 'Fehlschlag ' . $errFailures . ' von ' . $errThreshold . ' – danach Mail an ' . ($errIsTarget ? 'Händler (Kopie Admin)' : 'Admin');
+                                                }
+                                                ?>
+                                                <div class="small text-secondary" style="max-width:230px"><?php echo htmlspecialchars($mailInfo); ?></div>
                                             <?php endif; ?>
                                         <?php endif; ?>
                                         <?php
