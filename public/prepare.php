@@ -83,6 +83,7 @@ if ($valid && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
                 . 'Alte Welt (hellocash_binding.token): ' . ($legacyOk ? 'aktualisiert' : ($result['legacy'] === 'not_found' ? 'Shop NICHT gefunden' : 'NICHT aktualisiert – ' . $result['legacy']))
                 . ($legacyOk ? '' : "\n→ Der alte Token ist ungültig, die alte Welt steht für diesen Shop! Token bitte manuell in hellocash_binding.token eintragen.")
                 . "\nAPI v1 (alte Welt) mit neuem Token: " . ($result['v1_ok'] === true ? 'funktioniert' : ($result['v1_ok'] === false ? 'FUNKTIONIERT NICHT' : 'nicht prüfbar'))
+                . ($check->v1ProbeDetail !== null && $result['v1_ok'] !== true ? ' [' . $check->v1ProbeDetail . ']' : '')
                 . "\nAPI v2 (Connect): " . ($result['ok'] ? 'Zugriff vollständig' : 'es fehlen Berechtigungen für ' . implode(', ', $result['missing']))
                 . "\nConnect-Connection: " . ($result['applied'] ? 'aktualisiert' : 'noch keine – wird beim Umzug (Schritt 2) verwendet')
             );

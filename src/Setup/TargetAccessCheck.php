@@ -272,12 +272,18 @@ final class TargetAccessCheck
     {
         try {
             $response = ($this->http ?? new \Connect\Http\HttpClient())->request('GET', self::LEGACY_V1_PROBE_URL, ['Authorization' => 'Bearer ' . $token, 'Accept' => 'application/json']);
+            $this->v1ProbeDetail = 'HTTP ' . $response->statusCode . ' ' . mb_substr(trim(preg_replace('/\s+/', ' ', (string) $response->body) ?? ''), 0, 160);
 
             return $response->isSuccess();
-        } catch (\Throwable) {
+        } catch (\Throwable $e) {
+            $this->v1ProbeDetail = 'Fehler: ' . mb_substr($e->getMessage(), 0, 160);
+
             return null;
         }
     }
+
+    /** Antwort der letzten v1-Probe (HTTP-Status + Anfang der Antwort), fuer die Admin-Mail. */
+    public ?string $v1ProbeDetail = null;
 
     private function updateLegacy(string $shop, string $token): string
     {
