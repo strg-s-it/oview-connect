@@ -1008,6 +1008,22 @@ $mappingsStmt = $pdo->prepare(
 $mappingsStmt->execute(['shop' => $shop]);
 $mappings = $mappingsStmt->fetchAll();
 
+// Uebersetzungs-Aktivierungen (Ziel gesetzt, z.B. MGM-Auftraege) nur zur Anzeige hier; bearbeitet
+// wird in admin/mappings.php. Ohne diese Liste sieht man sie auf dieser Seite gar nicht.
+$translationMappingsStmt = $pdo->prepare(
+    'SELECT m.id, m.name, m.enabled, m.trigger_topic, m.schedule_interval_minutes,
+            sc.label AS source_connection_label, tc.label AS target_connection_label,
+            (SELECT r.status FROM connect_sync_runs r WHERE r.sync_mapping_id = m.id ORDER BY r.id DESC LIMIT 1) AS last_run_status,
+            (SELECT r.started_at FROM connect_sync_runs r WHERE r.sync_mapping_id = m.id ORDER BY r.id DESC LIMIT 1) AS last_run_started_at
+     FROM connect_sync_mappings m
+     JOIN connect_connections sc ON sc.id = m.source_connection_id
+     JOIN connect_connections tc ON tc.id = m.target_connection_id
+     WHERE m.shop = :shop AND m.target_connection_id IS NOT NULL
+     ORDER BY m.id DESC'
+);
+$translationMappingsStmt->execute(['shop' => $shop]);
+$translationMappings = $translationMappingsStmt->fetchAll();
+
 // Fuer das Anlage-Formular: alle global gepflegten Job-Vorlagen (siehe
 // admin/sync_job_templates.php) + alle Connections dieses Shops -- welche
 // Connection tatsaechlich zur gewaehlten Vorlage passt (Connector Type),
@@ -1115,7 +1131,12 @@ try {
     $lowStockThreshold = null;
 }
 // Name des Kassensystems fuer die Merchant-Texte statt "Zielsystem"
-$targetName = \Connect\Sync\TargetCapabilities::forShop($pdo, $shop)['target_name'];
+$targetCaps = \Connect\Sync\TargetCapabilities::forShop($pdo, $shop);
+$targetName = $targetCaps['target_name'];
+// Die Karte "Rechnungen / Aufträge" gilt nur für Zielsysteme mit Rechnungs-Operation (z. B. helloCash).
+// Systeme ohne (z. B. MGM: Aufträge über eine Mapping-Aktivierung) bekommen nur einen Info-Hinweis.
+// Ohne verbundenes Zielsystem bleibt die Karte wie bisher sichtbar.
+$showInvoiceCard = !$targetCaps['connected'] || $targetCaps['invoices'];
 $shopPlan = \Connect\Billing\Plans::forShop($pdo, $shop);
 $ownSmtpAllowed = \Connect\Billing\Plans::allowsOwnSmtp($shopPlan);
 // Ausblenden/Einblenden (Migration 0073) getrennt gelesen, null = Spalten fehlen noch
@@ -1386,6 +1407,64 @@ require __DIR__ . '/_header.php';
                 <?php endif; ?>
             </div>
         </div>
+
+        <?php if (count($translationMappings) > 0): ?>
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">Aktivierte Mapping-Vorlagen (Übersetzungen)</h3>
+                    </div>
+                    <p class="text-secondary px-3 pt-2">
+                        Nur zur Ansicht. Hier erscheinen Aktivierungen mit Zielsystem (z. B. Rechnung, MGM-Auftrag). Bearbeiten,
+                        testen und ein-/ausschalten unter <a href="mappings.php?shop=<?php echo urlencode($shop); ?>">Mappings</a>.
+                    </p>
+                    <div class="table-responsive">
+                        <table class="table table-vcenter card-table">
+                            <thead>
+                                <tr>
+                                    <th>Vorlage</th>
+                                    <th>Quelle → Ziel</th>
+                                    <th>Auslöser</th>
+                                    <th>Aktiv</th>
+                                    <th>Letzter Lauf</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($translationMappings as $tm): ?>
+                                    <tr>
+                                        <td><a href="mapping_edit.php?id=<?php echo (int) $tm['id']; ?>&amp;shop=<?php echo urlencode($shop); ?>"><?php echo htmlspecialchars((string) $tm['name']); ?></a></td>
+                                        <td><?php echo htmlspecialchars((string) $tm['source_connection_label']); ?> → <?php echo htmlspecialchars((string) $tm['target_connection_label']); ?></td>
+                                        <td class="text-secondary">
+                                            <?php if ($tm['trigger_topic'] !== null): ?>
+                                                <div>Webhook (<?php echo htmlspecialchars((string) $tm['trigger_topic']); ?>)</div>
+                                            <?php endif; ?>
+                                            <?php if ($tm['schedule_interval_minutes'] !== null): ?>
+                                                <div>Zeitplan (<?php echo (int) $tm['schedule_interval_minutes']; ?> Min.)</div>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td>
+                                            <span class="badge <?php echo ((int) $tm['enabled']) === 1 ? 'bg-green-lt' : 'bg-secondary-lt'; ?>">
+                                                <?php echo ((int) $tm['enabled']) === 1 ? 'aktiv' : 'inaktiv'; ?>
+                                            </span>
+                                        </td>
+                                        <td class="text-secondary">
+                                            <?php if ($tm['last_run_started_at'] !== null): ?>
+                                                <span class="badge <?php echo htmlspecialchars($statusBadge[$tm['last_run_status']] ?? 'bg-secondary-lt'); ?>">
+                                                    <?php echo htmlspecialchars((string) $tm['last_run_status']); ?>
+                                                </span>
+                                                <?php echo htmlspecialchars((string) $tm['last_run_started_at']); ?>
+                                            <?php else: ?>
+                                                noch nie gelaufen
+                                            <?php endif; ?>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        <?php endif; ?>
 
         <?php if (count($syncJobTemplates) > 0 && count($connectionsForShop) > 0): ?>
             <div class="col-12">
@@ -2069,6 +2148,22 @@ require __DIR__ . '/_header.php';
             </div>
         </div>
 
+        <?php if (!$showInvoiceCard): ?>
+        <div class="col-12 setup-anchor" id="setup-invoice">
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">Aufträge</h3>
+                </div>
+                <div class="card-body">
+                    <p class="text-secondary mb-0">
+                        Bestellungen aus Shopify legt oView automatisch als Auftrag in <?php echo htmlspecialchars($targetName); ?> an.
+                        Dafür gibt es hier nichts einzustellen – die Einrichtung übernimmt oView für dich.
+                        Bei Fragen oder Änderungswünschen melde dich bei uns.
+                    </p>
+                </div>
+            </div>
+        </div>
+        <?php else: ?>
         <div class="col-12 setup-anchor" id="setup-invoice">
             <div class="card">
                 <div class="card-header">
@@ -2305,6 +2400,7 @@ require __DIR__ . '/_header.php';
                 </div>
             </div>
         </div>
+        <?php endif; ?>
 
         <div class="col-12 setup-anchor" id="setup-notify">
             <div class="card">
