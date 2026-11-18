@@ -66,9 +66,11 @@ if ($valid && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
     if ($token === '' || strlen($token) > 2000 || preg_match('/\s/', $token) === 1) {
         $result = ['ok' => false, 'missing' => [], 'optional_missing' => [], 'objects' => [], 'error' => 'Bitte den Token ohne Leerzeichen einfügen.', 'valid' => false, 'v1_ok' => null, 'legacy' => 'skipped', 'applied' => false, 'throttled' => false];
     } else {
+        $v1Detail = null;
         try {
             $check = new TargetAccessCheck($pdo, $crypto, new ConnectorFactory($pdo, $crypto, new HttpClient()), $config, new HttpClient());
             $result = $check->prepare($shop, $token);
+            $v1Detail = $check->v1ProbeDetail;
         } catch (\Throwable $ex) {
             error_log('[prepare] ' . $shop . ': ' . $ex);
             $result = ['ok' => false, 'missing' => [], 'optional_missing' => [], 'objects' => [], 'error' => 'Die Prüfung ist gerade nicht möglich. Bitte sofort an office@oview.at schreiben, falls du den Token schon neu generiert hast.', 'valid' => false, 'v1_ok' => null, 'legacy' => 'skipped', 'applied' => false, 'throttled' => false];
@@ -83,7 +85,7 @@ if ($valid && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
                 . 'Alte Welt (hellocash_binding.token): ' . ($legacyOk ? 'aktualisiert' : ($result['legacy'] === 'not_found' ? 'Shop NICHT gefunden' : 'NICHT aktualisiert – ' . $result['legacy']))
                 . ($legacyOk ? '' : "\n→ Der alte Token ist ungültig, die alte Welt steht für diesen Shop! Token bitte manuell in hellocash_binding.token eintragen.")
                 . "\nAPI v1 (alte Welt) mit neuem Token: " . ($result['v1_ok'] === true ? 'funktioniert' : ($result['v1_ok'] === false ? 'FUNKTIONIERT NICHT' : 'nicht prüfbar'))
-                . ($check->v1ProbeDetail !== null && $result['v1_ok'] !== true ? ' [' . $check->v1ProbeDetail . ']' : '')
+                . ($v1Detail !== null && $result['v1_ok'] !== true ? ' [' . $v1Detail . ']' : '')
                 . "\nAPI v2 (Connect): " . ($result['ok'] ? 'Zugriff vollständig' : 'es fehlen Berechtigungen für ' . implode(', ', $result['missing']))
                 . "\nConnect-Connection: " . ($result['applied'] ? 'aktualisiert' : 'noch keine – wird beim Umzug (Schritt 2) verwendet')
             );
@@ -110,7 +112,7 @@ if ($valid) {
 $prepared = $valid ? TargetAccessCheck::preparedRow($pdo, $shop) : null;
 $tokenDone = $prepared !== null && (int) $prepared['access_ok'] === 1;
 // Frisch eingetragener, vollstaendiger Token zaehlt sofort (die Zeile $prepared ist davor schon gelesen worden)
-if ($result !== null && ($result['ok'] ?? false)) {
+if ($result !== null && $result['ok']) {
     $tokenDone = true;
 }
 $openSteps = [];

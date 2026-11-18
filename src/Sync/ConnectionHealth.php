@@ -22,6 +22,8 @@ use PDO;
  * Ist die Connection das Ziel-System des Shops (connect_shops.target_connection_id), geht die Mail
  * stattdessen an den Merchant (Kopie an den Admin, Schalter "Probleme melden"), erst ab dem dritten
  * Fehlschlag. Shopify-Connections melden weiter nur an den Admin: der Merchant kann sie nicht beheben.
+ * Shops mit deinstallierter App (Connect\Privacy\UninstallState) bekommen keine Mails; geprueft wird weiter,
+ * damit eine Neuinstallation von selbst erkannt wird.
  *
  * Laeuft nur in einem Scheduler gleichzeitig (GET_LOCK auf oberster Ebene, nie verschachtelt),
  * je Aufruf hoechstens MAX_PER_RUN Connections und eine Zeitgrenze.
@@ -141,7 +143,7 @@ final class ConnectionHealth
                  WHERE id = :id"
             )->execute(['id' => $id]);
 
-            if ($connection['health_notified_at'] !== null && (int) $connection['live'] === 1) {
+            if ($connection['health_notified_at'] !== null && (int) $connection['live'] === 1 && !\Connect\Privacy\UninstallState::forShop($this->pdo, (string) $connection['shop'])) {
                 if ((int) $connection['is_target'] === 1) {
                     return $this->mailMerchant(
                         $connection,
@@ -166,7 +168,8 @@ final class ConnectionHealth
         )->execute(['message' => $result['message'], 'failures' => $failures, 'id' => $id]);
 
         $isTarget = (int) $connection['is_target'] === 1;
-        if ($failures >= ($isTarget ? self::MERCHANT_AFTER_FAILURES : 2) && $connection['health_notified_at'] === null && (int) $connection['live'] === 1) {
+        if ($failures >= ($isTarget ? self::MERCHANT_AFTER_FAILURES : 2) && $connection['health_notified_at'] === null && (int) $connection['live'] === 1
+            && !\Connect\Privacy\UninstallState::forShop($this->pdo, (string) $connection['shop'])) { // deinstallierte App: kein Alarm
             $sent = $isTarget ? $this->mailMerchant(
                 $connection,
                 'oView: Verbindung zu ' . $connection['type_name'] . ' gestört',

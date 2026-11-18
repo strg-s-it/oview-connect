@@ -325,8 +325,22 @@ $healthChip = static function (string $name, ?array $connection): string {
 };
 
 // Shops mit einer fehlerhaften Verbindung zuerst (stabil: sonst bleibt die Reihenfolge "zuletzt gesehen")
+// Deinstallierte Apps (app/uninstalled, Connect\Privacy\UninstallState) sind kein Verbindungsproblem: Token ungueltig ist dort erwartet.
+$uninstalledAtByShop = \Connect\Privacy\UninstallState::all($pdo);
+$uninstalledShops = [];
 $problemShops = [];
 foreach ($healthByShop as $healthShop => $healthConnections) {
+    $shopifyRow = null;
+    foreach ($healthConnections as $healthConnection) {
+        if ($healthConnection['type_key'] === 'shopify') {
+            $shopifyRow = $healthConnection;
+            break;
+        }
+    }
+    if (\Connect\Privacy\UninstallState::isUninstalled($uninstalledAtByShop[(string) $healthShop] ?? null, $shopifyRow)) {
+        $uninstalledShops[(string) $healthShop] = $uninstalledAtByShop[(string) $healthShop];
+        continue;
+    }
     foreach ($healthConnections as $healthConnection) {
         if ($healthConnection['health_status'] === 'error') {
             $problemShops[(string) $healthShop] = true;
@@ -453,7 +467,14 @@ require dirname(__DIR__) . '/app/_header.php';
                                                 <?php echo $healthChip('Shopify', $shopifyHealth); ?>
                                                 <?php echo $healthChip($targetHealth !== null ? (string) $targetHealth['type_name'] : 'Ziel', $targetHealth); ?>
                                             </div>
-                                            <?php if ($firstError !== null): ?>
+                                            <?php if (isset($uninstalledShops[(string) $row['shop']])): ?>
+                                                <?php $uninstalledTs = (int) strtotime($uninstalledShops[(string) $row['shop']]); ?>
+                                                <div class="small mt-1" style="max-width:230px">
+                                                    <span class="badge bg-yellow-lt">App deinstalliert</span>
+                                                    am <?php echo htmlspecialchars(date('d.m. H:i', $uninstalledTs)); ?> –
+                                                    Automatik gestoppt, Daten löscht Shopify-<code>shop/redact</code> ca. <?php echo htmlspecialchars(date('d.m.', $uninstalledTs + 48 * 3600)); ?>. Keine Fehlermails.
+                                                </div>
+                                            <?php elseif ($firstError !== null): ?>
                                                 <div class="small text-danger mt-1" style="max-width:230px" title="<?php echo htmlspecialchars((string) ($firstError['health_message'] ?? '')); ?>">
                                                     <?php if (\Connect\Shopify\ShopBlock::matches((string) ($firstError['health_message'] ?? ''))): ?>
                                                         <?php echo htmlspecialchars(\Connect\Shopify\ShopBlock::label((string) $firstError['health_message'])); ?> – Aufhebung nur durch Shopify, oView versucht es alle <?php echo \Connect\Shopify\ShopBlock::RETRY_HOURS; ?> Std. neu
