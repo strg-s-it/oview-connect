@@ -448,7 +448,22 @@ final class OrderPreparer
                     break;
                 }
             }
+            // Nur ein ECHTER Mischsatz: liegt zwischen kleinstem und groesstem Satz der Positionen und
+            // entspricht (bis 1 Prozentpunkt, Rabatte verschieben die Gewichte leicht) dem nach
+            // Nettosumme gewichteten Mittel. Ein anderer, eigener Versandsatz (z.B. 20 % bei Positionen
+            // mit 10 % und 0 %) bleibt unveraendert.
+            $isBlend = false;
             if (!$known && count($weights) >= 2) {
+                $netSum = array_sum(array_column($weights, 'net'));
+                $mean = 0.0;
+                foreach ($weights as $w) {
+                    $mean += $w['rate'] * $w['net'] / $netSum;
+                }
+                $rates = array_column($weights, 'rate');
+                $isBlend = $rateInfos[0]['rate'] > min($rates) && $rateInfos[0]['rate'] < max($rates)
+                    && abs($rateInfos[0]['rate'] - $mean) <= 1.0;
+            }
+            if ($isBlend) {
                 return $this->blendedShippingLines($weights, $rateInfos[0]['tax_amount'], $shippingPrice, $shippingOriginal, $hasDiscount, $computedTotalTax, $notes);
             }
         }
