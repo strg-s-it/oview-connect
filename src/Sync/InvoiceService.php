@@ -916,10 +916,44 @@ final class InvoiceService
             $pdfContent,
             'Rechnung_' . ($invoiceNumber !== '' ? preg_replace('/[^A-Za-z0-9_-]/', '', $invoiceNumber) : 'oView') . '.pdf',
             // Weitere Anhaenge des Merchants (z.B. Widerrufsbelehrung), je Abo freigegeben -- Migration 0089
-            (new \Connect\Mail\ShopAttachments($this->pdo))->forMail($shop)
+            (new \Connect\Mail\ShopAttachments($this->pdo))->forMail($shop),
+            $this->bccAddress($shop, $shopRow, $recipient, $config)
         );
 
         ActivityLog::log($this->pdo, $shop, null, 'invoice', 'send_mail', $result['sent'], $result['note'], $invoiceNumber !== '' ? $invoiceNumber : null);
+    }
+
+    /**
+     * Blindkopie der Rechnungsmail an den Merchant (Migration 0115, Standard: an). Adresse wie bei den
+     * Benachrichtigungen (eigene Adresse, sonst Shopify-Shop-E-Mail), zuletzt die Absender-/Antwortadresse.
+     * null = keine Kopie (aus, keine Adresse, gleiche Adresse wie der Kunde oder Spalte fehlt noch).
+     *
+     * @param array<string, mixed> $shopRow
+     */
+    private function bccAddress(string $shop, array $shopRow, string $recipient, Config $config): ?string
+    {
+        try {
+            $stmt = $this->pdo->prepare('SELECT invoice_mail_bcc_merchant FROM connect_shops WHERE shop = :shop');
+            $stmt->execute(['shop' => $shop]);
+            if ((int) $stmt->fetchColumn() !== 1) {
+                return null;
+            }
+        } catch (\Throwable) {
+            return null; // Migration 0115 fehlt: bisheriges Verhalten (keine Kopie)
+        }
+
+        $candidates = [
+            (new \Connect\Notify\Notifier($this->pdo, $config))->settings($shop)['effective'],
+            (string) ($shopRow['invoice_mail_sender_address'] ?? ''),
+        ];
+        foreach ($candidates as $candidate) {
+            $candidate = trim((string) $candidate);
+            if ($candidate !== '' && filter_var($candidate, FILTER_VALIDATE_EMAIL) !== false) {
+                return strcasecmp($candidate, $recipient) === 0 ? null : $candidate;
+            }
+        }
+
+        return null;
     }
 
     /**

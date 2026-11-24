@@ -32,6 +32,7 @@ final class InvoiceMailer
      * } $ownSmtp Bereits entschluesselte Zugangsdaten -- oder alle Werte null/leer, wenn keine hinterlegt sind
      * @param list<array{content: string, filename: string, mime: string}> $extraAttachments weitere Anhaenge
      *        (Connect\Mail\ShopAttachments, z.B. Widerrufsbelehrung), Migration 0089
+     * @param string|null $bcc Blindkopie an den Merchant (bereits geprueft), null = keine
      * @return array{sent: bool, note: string} note beschreibt den tatsaechlich genutzten Weg (fuers Protokoll)
      */
     public function send(
@@ -44,7 +45,8 @@ final class InvoiceMailer
         string $message,
         string $pdfContent,
         string $pdfFilename,
-        array $extraAttachments = []
+        array $extraAttachments = [],
+        ?string $bcc = null
     ): array {
         $this->extraAttachments = $extraAttachments;
         $ownSmtpComplete = !empty($ownSmtp['smtp_host']) && !empty($ownSmtp['smtp_username']) && !empty($ownSmtp['smtp_password']);
@@ -62,7 +64,8 @@ final class InvoiceMailer
                 $subject,
                 $message,
                 $pdfContent,
-                $pdfFilename
+                $pdfFilename,
+                $bcc
             );
 
             if ($error === null) {
@@ -71,7 +74,7 @@ final class InvoiceMailer
 
             // Fallback auf den System-Versand -- der Grund fuer das Scheitern des eigenen
             // SMTP-Kontos steht im Rueckgabewert und wird vom Aufrufer (InvoiceService) protokolliert.
-            $systemSent = $this->sendViaSystemMail($systemFromAddress, $fromName, $replyToAddress, $recipient, $subject, $message, $pdfContent, $pdfFilename);
+            $systemSent = $this->sendViaSystemMail($systemFromAddress, $fromName, $replyToAddress, $recipient, $subject, $message, $pdfContent, $pdfFilename, $bcc);
 
             return [
                 'sent' => $systemSent,
@@ -81,7 +84,7 @@ final class InvoiceMailer
             ];
         }
 
-        $systemSent = $this->sendViaSystemMail($systemFromAddress, $fromName, $replyToAddress, $recipient, $subject, $message, $pdfContent, $pdfFilename);
+        $systemSent = $this->sendViaSystemMail($systemFromAddress, $fromName, $replyToAddress, $recipient, $subject, $message, $pdfContent, $pdfFilename, $bcc);
 
         return ['sent' => $systemSent, 'note' => $systemSent ? 'per System-Postfach versendet' : 'System-Postfach-Versand fehlgeschlagen'];
     }
@@ -168,7 +171,8 @@ final class InvoiceMailer
         string $subject,
         string $message,
         string $pdfContent,
-        string $pdfFilename
+        string $pdfFilename,
+        ?string $bcc = null
     ): ?string {
         $mailer = null;
 
@@ -194,6 +198,9 @@ final class InvoiceMailer
             $mailer->setFrom($username, $fromName); // Absenderadresse muss zum SMTP-Konto gehoeren (SPF/DKIM)
             $mailer->addReplyTo($replyTo !== '' ? $replyTo : $username);
             $mailer->addAddress($recipient);
+            if ($bcc !== null && $bcc !== '') {
+                $mailer->addBCC($bcc); // Blindkopie: steht nicht im Mailkopf des Kunden
+            }
             $mailer->Subject = $subject;
             $mailer->Body = $message;
             $mailer->addStringAttachment($pdfContent, $pdfFilename, 'base64', 'application/pdf');
@@ -217,7 +224,8 @@ final class InvoiceMailer
         string $subject,
         string $message,
         string $pdfContent,
-        string $pdfFilename
+        string $pdfFilename,
+        ?string $bcc = null
     ): bool {
         $boundary = md5(uniqid((string) time(), true));
         $fromName = trim(preg_replace('/[\r\n]+/', ' ', $fromName) ?? '');
@@ -225,6 +233,7 @@ final class InvoiceMailer
 
         $headers = 'From: ' . mb_encode_mimeheader($fromName !== '' ? $fromName : 'oView Connect', 'UTF-8') . " <{$fromAddress}>\r\n"
             . "Reply-To: {$replyTo}\r\n"
+            . ($bcc !== null && $bcc !== '' ? 'Bcc: ' . str_replace(["\r", "\n"], '', $bcc) . "\r\n" : '')
             . "MIME-Version: 1.0\r\n"
             . "Content-Type: multipart/mixed; boundary=\"{$boundary}\"\r\n";
 

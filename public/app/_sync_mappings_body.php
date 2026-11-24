@@ -652,6 +652,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'refre
     } catch (\Throwable) {
         // Migration 0072 noch nicht eingespielt
     }
+    // Blindkopie an den Merchant (Migration 0115) ebenso getrennt
+    try {
+        $pdo->prepare('UPDATE connect_shops SET invoice_mail_bcc_merchant = :bcc WHERE shop = :shop')
+            ->execute(['bcc' => isset($_POST['invoice_mail_bcc_merchant']) ? 1 : 0, 'shop' => $shop]);
+    } catch (\Throwable) {
+        // Migration 0115 noch nicht eingespielt
+    }
     // Kundenzuordnung (Migration 0095) ebenso getrennt
     if (isset(\Connect\Sync\InvoiceService::CUSTOMER_MATCH_LABELS[$_POST['invoice_customer_match'] ?? ''])) {
         try {
@@ -1109,6 +1116,15 @@ try {
     $shopSettings['invoice_signature_mandatory'] = $sigValue !== false ? (int) $sigValue : 0;
 } catch (\Throwable) {
     $shopSettings['invoice_signature_mandatory'] = null;
+}
+// Blindkopie an den Merchant (Migration 0115) getrennt gelesen, null = Spalte fehlt noch (Option ausgeblendet)
+try {
+    $bccStmt = $pdo->prepare('SELECT invoice_mail_bcc_merchant FROM connect_shops WHERE shop = :shop');
+    $bccStmt->execute(['shop' => $shop]);
+    $bccValue = $bccStmt->fetchColumn();
+    $shopSettings['invoice_mail_bcc_merchant'] = $bccValue !== false ? (int) $bccValue : 1;
+} catch (\Throwable) {
+    $shopSettings['invoice_mail_bcc_merchant'] = null;
 }
 // Kundenzuordnung (Migration 0095) getrennt gelesen, null = Spalte fehlt noch (Auswahl ausgeblendet)
 try {
@@ -2302,6 +2318,23 @@ require __DIR__ . '/_header.php';
                                 <textarea rows="6" name="invoice_mail_message" class="form-control"><?php echo htmlspecialchars((string) ($shopSettings['invoice_mail_message'] ?? '')); ?></textarea>
                                 <small class="text-secondary">Platzhalter: %VORNAME%, %NACHNAME%, %BESTELLUNG%, %DATUM%.</small>
                             </div>
+                            <?php if ($shopSettings['invoice_mail_bcc_merchant'] !== null): ?>
+                                <div class="col-12">
+                                    <label class="form-check">
+                                        <input type="checkbox" name="invoice_mail_bcc_merchant" class="form-check-input" <?php echo (int) $shopSettings['invoice_mail_bcc_merchant'] === 1 ? 'checked' : ''; ?>>
+                                        <span class="form-check-label">Kopie jeder Rechnungsmail an mich senden (Blindkopie)</span>
+                                    </label>
+                                    <small class="text-secondary d-block">
+                                        So kannst du prüfen, ob der Mailversand funktioniert, und weißt für den Versand, was der Kunde bekommen hat. Der Kunde sieht deine Adresse nicht.
+                                        Die Kopie geht an
+                                        <?php if ($notifySettings['effective'] !== null): ?>
+                                            <strong><?php echo htmlspecialchars((string) $notifySettings['effective']); ?></strong> (Adresse aus „Benachrichtigungen“).
+                                        <?php else: ?>
+                                            deine Absender-/Antwortadresse (oder, falls leer, gibt es keine Kopie).
+                                        <?php endif; ?>
+                                    </small>
+                                </div>
+                            <?php endif; ?>
                             <div class="col-12">
                                 <details>
                                     <summary class="text-secondary" style="cursor:pointer;">Eigenes SMTP-Konto verwenden (optional)</summary>
