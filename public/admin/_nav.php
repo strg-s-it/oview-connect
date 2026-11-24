@@ -52,6 +52,7 @@ return [
         [null, 'Kontrolle'],
         ['stock_overview.php', 'Lagerbestand'],
         ['invoices_overview.php', 'Rechnungen'],
+        ['order_data.php', 'Bestelldaten'],
         ['tax_monitoring.php', 'Steuer-Kontrolle'],
         [null, 'System'],
         ['db_health.php', 'Datenbank'],
