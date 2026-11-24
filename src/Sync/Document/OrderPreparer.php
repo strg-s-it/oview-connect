@@ -171,7 +171,7 @@ final class OrderPreparer
             ]);
         }
 
-        foreach ($this->shippingLines($orderRow, $pricesIncludeTax, $computedTotalTax, $notes, $lines) as $shippingLine) {
+        foreach ($this->shippingLines($orderRow, $pricesIncludeTax, $computedTotalTax, $notes) as $shippingLine) {
             $lines[] = $shippingLine;
         }
 
@@ -396,18 +396,10 @@ final class OrderPreparer
      * Steuersatz, sonst bleibt es beim rabattierten Preis.
      *
      * @param array<string, mixed> $orderRow
-     * Mischsatz: Ist bei Shopify "Versand anteilig besteuern" aktiv und der Warenkorb hat mehrere
-     * Steuersaetze, meldet Shopify EINE Steuerzeile mit einem rechnerischen Mischsatz (z.B. 15,3396 %
-     * bei 20 % und 10 %). Den Satz gibt es in keinem Kassensystem (helloCash: tax_rate_not_found,
-     * Bestellung #11134). Dann wird der Versand auf die echten Saetze der Positionen aufgeteilt,
-     * gewichtet nach deren Nettosumme; bei Gratisversand (Preis 0) zaehlt der Satz mit dem groessten
-     * Nettoanteil.
-     *
      * @param list<string> $notes
-     * @param list<array<string, mixed>> $items bereits aufbereitete Artikelpositionen
      * @return list<array<string, mixed>>
      */
-    private function shippingLines(array $orderRow, bool $pricesIncludeTax, float &$computedTotalTax, array &$notes, array $items = []): array
+    private function shippingLines(array $orderRow, bool $pricesIncludeTax, float &$computedTotalTax, array &$notes): array
     {
         $shippingPrice = (float) ($orderRow['shipping_discounted_price'] ?? $orderRow['shipping_price'] ?? 0);
         $shippingOriginal = (float) ($orderRow['shipping_original_price'] ?? 0);
@@ -436,21 +428,6 @@ final class OrderPreparer
         // Netto -> Brutto (Migration 0063), VOR der Aufteilung auf die Saetze.
         if (!$pricesIncludeTax) {
             $shippingPrice = round($shippingPrice + array_sum(array_column($rateInfos, 'tax_amount')), 2);
-        }
-
-        // Mischsatz erkennen: eine Steuerzeile, deren Satz bei keiner Artikelposition vorkommt
-        if (count($rateInfos) === 1) {
-            $weights = self::netByRate($items);
-            $known = false;
-            foreach ($weights as $w) {
-                if (abs($w['rate'] - $rateInfos[0]['rate']) < 0.01) {
-                    $known = true;
-                    break;
-                }
-            }
-            if (!$known && count($weights) >= 2) {
-                return $this->blendedShippingLines($weights, $rateInfos[0]['tax_amount'], $shippingPrice, $shippingOriginal, $hasDiscount, $computedTotalTax, $notes);
-            }
         }
 
         $shareSum = array_sum(array_column($rateInfos, 'gross_share'));
@@ -487,84 +464,6 @@ final class OrderPreparer
             $rateLabels = implode(', ', array_map(static fn (array $r): string => round($r['rate'], 2) . '%', $rateInfos));
             $notes[] = "Versand auf {$count} Steuersätze aufgeteilt ({$rateLabels}).";
         }
-
-        return $lines;
-    }
-
-    /**
-     * Nettosumme der Artikelpositionen je (gerundetem) Steuersatz, in Reihenfolge des ersten Auftretens.
-     *
-     * @param list<array<string, mixed>> $items
-     * @return array<string, array{rate: float, net: float}>
-     */
-    private static function netByRate(array $items): array
-    {
-        $weights = [];
-        foreach ($items as $item) {
-            $net = (float) ($item['line_total_net'] ?? 0);
-            if ($net <= 0) {
-                continue;
-            }
-            $rate = round((float) ($item['tax_rate_percent'] ?? 0), 2);
-            $key = (string) $rate;
-            $weights[$key] = ['rate' => $rate, 'net' => ($weights[$key]['net'] ?? 0.0) + $net];
-        }
-
-        return $weights;
-    }
-
-    /**
-     * Versand mit Shopify-Mischsatz auf die echten Satze aufteilen (siehe shippingLines()).
-     *
-     * @param array<string, array{rate: float, net: float}> $weights
-     * @param list<string> $notes
-     * @return list<array<string, mixed>>
-     */
-    private function blendedShippingLines(array $weights, float $shopifyTax, float $shippingPrice, float $shippingOriginal, bool $hasDiscount, float &$computedTotalTax, array &$notes): array
-    {
-        $totalNet = array_sum(array_column($weights, 'net'));
-
-        // Gratisversand: Preis 0, der Satz ist nur Formsache -> Satz mit dem groessten Nettoanteil
-        if ($shippingPrice <= 0) {
-            $dominant = null;
-            foreach ($weights as $w) {
-                if ($dominant === null || $w['net'] > $dominant['net']) {
-                    $dominant = $w;
-                }
-            }
-            $rate = $dominant['rate'] ?? 0.0;
-            $computedTotalTax += round($shopifyTax, 2);
-            $notes[] = 'Versand mit Mischsteuersatz von Shopify (kein echter Steuersatz): mit ' . round($rate, 2) . '% angelegt.';
-
-            return [self::shippingLine('Versand', $hasDiscount ? $shippingOriginal : $shippingPrice, $shippingPrice, $rate, $shopifyTax, $hasDiscount)];
-        }
-
-        // Brutto-Versand = Netto * Summe(Gewicht * (1 + Satz)); daraus je Satz Netto und Brutto
-        $factor = 0.0;
-        foreach ($weights as $w) {
-            $factor += ($w['net'] / $totalNet) * (1 + $w['rate'] / 100);
-        }
-        $remainingGross = $shippingPrice;
-        $remainingTax = round($shopifyTax, 2);
-        $count = count($weights);
-        $index = 0;
-        $lines = [];
-        foreach ($weights as $w) {
-            $index++;
-            if ($index === $count) {
-                $gross = round($remainingGross, 2);
-                $tax = max(0.0, $remainingTax); // Rest = Shopifys Steuersumme minus bisherige Anteile
-            } else {
-                $gross = round($shippingPrice / $factor * ($w['net'] / $totalNet) * (1 + $w['rate'] / 100), 2);
-                $tax = round($gross - $gross / (1 + $w['rate'] / 100), 2);
-            }
-            $remainingGross -= $gross;
-            $remainingTax = round($remainingTax - $tax, 2);
-            $computedTotalTax += $tax;
-            $lines[] = self::shippingLine('Versand (' . round($w['rate'], 2) . '%)', $gross, $gross, $w['rate'], $tax, false);
-        }
-        $labels = implode(', ', array_map(static fn (array $w): string => round($w['rate'], 2) . '%', $weights));
-        $notes[] = "Versand mit Mischsteuersatz von Shopify auf die Sätze der Positionen aufgeteilt ({$labels}).";
 
         return $lines;
     }
