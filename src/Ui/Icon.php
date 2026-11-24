@@ -104,6 +104,7 @@ final class Icon
         'webhooks.php' => 'webhook',
         'activity_log.php' => 'history',
         'invoices_overview.php' => 'file-invoice',
+        'order_data.php' => 'file-invoice',
         'stock_overview.php' => 'packages',
         'tax_monitoring.php' => 'receipt-tax',
         'db_health.php' => 'database',
