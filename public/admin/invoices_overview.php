@@ -135,7 +135,13 @@ require dirname(__DIR__) . '/app/_header.php';
                                 <tr>
                                     <td class="text-secondary text-nowrap"><?php echo htmlspecialchars((string) $row['created_at']); ?></td>
                                     <td><a href="invoices.php?shop=<?php echo urlencode($row['shop']); ?>"><?php echo htmlspecialchars($row['shop']); ?></a></td>
-                                    <td><?php echo $orderNumber !== null ? htmlspecialchars($orderNumber) : '<span class="text-secondary">?</span>'; ?></td>
+                                    <td>
+                                        <?php if ($orderNumber !== null): ?>
+                                            <a href="order_data.php?shop=<?php echo urlencode((string) $row['shop']); ?>&amp;order=<?php echo urlencode(ltrim($orderNumber, '#')); ?>" title="Shopify-Bestelldaten ansehen"><?php echo htmlspecialchars($orderNumber); ?></a>
+                                        <?php else: ?>
+                                            <span class="text-secondary">?</span>
+                                        <?php endif; ?>
+                                    </td>
                                     <td><?php echo $row['external_id'] !== null && $row['external_id'] !== '' ? htmlspecialchars((string) $row['external_id']) : '<span class="text-secondary">—</span>'; ?></td>
                                     <td><span class="badge <?php echo htmlspecialchars($statusBadge[$row['status']] ?? 'bg-secondary-lt'); ?>"><?php echo htmlspecialchars((string) $row['status']); ?></span></td>
                                     <td>

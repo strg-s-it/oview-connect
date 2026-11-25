@@ -50,29 +50,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'fetch
     // In Etappen wie "Berechtigungen jetzt pruefen" (Umstieg): hoechstens ~45 s je Klick, in den
     // letzten 24 Std. abgefragte Shops werden uebersprungen -- der naechste Klick macht weiter.
     @set_time_limit(90);
-    $known = $contacts->all();
-    $done = 0;
-    $recent = 0;
-    $remaining = 0;
-    $failed = [];
-    $started = time();
-    foreach ($merchants as $m) {
-        $fetchedAt = isset($known[$m['shop']]['fetched_at']) ? strtotime((string) $known[$m['shop']]['fetched_at']) : false;
-        if ($fetchedAt !== false && $fetchedAt > time() - 86400 && ($known[$m['shop']]['error'] ?? null) === null) {
-            $recent++;
-            continue;
-        }
-        if (time() - $started > 45) {
-            $remaining++;
-            continue;
-        }
-        $error = $contacts->fetch($m['shop'], $m['world'] === 'legacy', $directory->legacyToken($m['shop']));
-        if ($error !== null) {
-            $failed[] = $m['shop'] . ': ' . $error;
-        } else {
-            $done++;
-        }
-    }
+    ['done' => $done, 'recent' => $recent, 'remaining' => $remaining, 'failed' => $failed] = $contacts->fetchBatch($merchants, $directory);
     $flashMessage = "{$done} Shop(s) bei Shopify abgefragt"
         . ($recent > 0 ? ", {$recent} waren schon aktuell (letzte 24 Std.)" : '') . '.'
         . ($remaining > 0 ? " Noch {$remaining} offen – bitte noch einmal klicken." : ' Alle Shops der Auswahl sind abgefragt.')
@@ -93,6 +71,7 @@ foreach ($merchants as $m) {
         'myshopify' => $m['shop'] . '.myshopify.com',
         'email' => (string) ($c['email'] ?? $m['email'] ?? ''),
         'contact_email' => (string) ($c['contact_email'] ?? ''),
+        'known_email' => (string) ($m['email'] ?? ''), // Adresse aus Installation/Benachrichtigungen (alte Welt oder Connect)
         'phone' => (string) ($c['phone'] ?? ''),
         'address' => (string) ($c['address'] ?? ''),
         'country' => (string) ($c['country'] ?? ''),
@@ -205,7 +184,15 @@ require dirname(__DIR__) . '/app/_header.php';
                         <td><?php echo $e($r['name']); ?><?php echo $r['company'] !== '' && $r['company'] !== $r['name'] ? '<div class="small text-secondary">' . $e($r['company']) . '</div>' : ''; ?></td>
                         <td class="small"><?php echo $r['url'] !== '' ? $e($r['url']) : '<span class="text-secondary">–</span>'; ?></td>
                         <td class="small"><?php echo $r['phone'] !== '' ? $e($r['phone']) : '<span class="text-secondary">–</span>'; ?></td>
-                        <td class="small"><?php echo $r['email'] !== '' ? $e($r['email']) : '<span class="text-secondary">–</span>'; ?></td>
+                        <td class="small">
+                            <?php echo $r['email'] !== '' ? $e($r['email']) : '<span class="text-secondary">–</span>'; ?>
+                            <?php if ($r['contact_email'] !== '' && strcasecmp($r['contact_email'], $r['email']) !== 0): ?>
+                                <div><?php echo $e($r['contact_email']); ?> <span class="badge bg-blue-lt">weitere</span></div>
+                            <?php endif; ?>
+                            <?php if ($r['known_email'] !== '' && strcasecmp($r['known_email'], $r['email']) !== 0 && strcasecmp($r['known_email'], $r['contact_email']) !== 0): ?>
+                                <div><?php echo $e($r['known_email']); ?> <span class="badge bg-secondary-lt">Installation</span></div>
+                            <?php endif; ?>
+                        </td>
                         <td class="small text-secondary">
                             <?php if ($r['error'] !== ''): ?><span class="text-danger"><?php echo $e($r['error']); ?></span>
                             <?php else: ?><?php echo $r['fetched_at'] !== '' ? $e(substr($r['fetched_at'], 0, 16)) : 'noch nicht'; ?><?php endif; ?>

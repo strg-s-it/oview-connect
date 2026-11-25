@@ -51,8 +51,14 @@ final class LiveSwitch
         'products/update' => 'product_update.php',
     ];
 
+    /** Zusaetzliches Abo je nach Rechnungs-Ausloeser des Shops (connect_shops.invoice_trigger), nur bei aktiver Rechnungserstellung */
+    private const INVOICE_TRIGGER_RECEIVERS = [
+        'orders/create' => 'order_created.php',
+        'orders/fulfilled' => 'order_fulfilled.php',
+    ];
+
     /** Alle Topics, deren Connect-Abos beim Zurueckschalten entfernt werden */
-    private const CONNECT_REMOVABLE_TOPICS = ['orders/paid', 'orders/create', 'products/update'];
+    private const CONNECT_REMOVABLE_TOPICS = ['orders/paid', 'orders/create', 'orders/fulfilled', 'products/update'];
 
     private const LEGACY_HOST_MARKER = '//oview.at/webhooks/';
 
@@ -228,7 +234,16 @@ final class LiveSwitch
         if ($isLive) {
             // 1. Connect-Abos sicherstellen (vor dem Loeschen der alten!)
             $connectReady = [];
-            foreach (self::CONNECT_TOPICS as $topic => $receiver) {
+            $connectTopics = self::CONNECT_TOPICS;
+            $invoiceTopic = \Connect\Setup\ShopActivations::invoiceTopic($this->pdo, $shop);
+            if (isset(self::INVOICE_TRIGGER_RECEIVERS[$invoiceTopic])) {
+                $invoiceOn = $this->pdo->prepare('SELECT invoice_creation_enabled FROM connect_shops WHERE shop = :shop');
+                $invoiceOn->execute(['shop' => $shop]);
+                if ((int) $invoiceOn->fetchColumn() === 1) {
+                    $connectTopics[$invoiceTopic] = self::INVOICE_TRIGGER_RECEIVERS[$invoiceTopic];
+                }
+            }
+            foreach ($connectTopics as $topic => $receiver) {
                 $found = null;
                 foreach ($existing as $hook) {
                     if ($hook['topic'] === $topic && $isConnect($hook)) {

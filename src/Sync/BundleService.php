@@ -171,7 +171,7 @@ final class BundleService
                 continue;
             }
             $value = trim((string) ($line[$lineMatchKey] ?? ''));
-            $sold = (int) round((float) ($line['line_quantity'] ?? 0));
+            $sold = (int) round(OrderPreparer::effectiveQuantity($line));
             if ($value === '' || $sold <= 0 || !isset($definitions[$value])) {
                 continue;
             }

@@ -194,13 +194,15 @@ final class InvoiceService
         if (array_key_exists('total_tax', $orderRow)) {
             $shopifyTotalTax = (float) $orderRow['total_tax'];
             $taxDiff = abs($computedTotalTax - $shopifyTotalTax);
-            if ($taxDiff > 0.10) {
+            if ($taxDiff > 0.10 && $taxDiff <= self::taxAllowedDiff($shopRow, $shopifyTotalTax)) {
+                $notes[] = sprintf('Steuer-Kontrolle: Abweichung %.2f EUR liegt innerhalb der eingestellten Toleranz (%s %%).', $taxDiff, (string) (float) $shopRow['invoice_tax_tolerance_percent']);
+            } elseif ($taxDiff > 0.10) {
                 $message = sprintf(
                     'Steuer-Kontrolle fehlgeschlagen: berechnete Steuersumme %.2f EUR weicht von Shopifys Steuersumme %.2f EUR ab (Differenz %.2f EUR) -- Rechnung zur Sicherheit nicht angelegt.',
                     $computedTotalTax,
                     $shopifyTotalTax,
                     $taxDiff
-                );
+                ) . ' ' . self::diagnoseOrder($orderRow);
                 $this->notifyError($shop, $shopRow, $message, $orderRow);
                 ActivityLog::log($this->pdo, $shop, null, 'invoice', 'create', false, "Bestellung {$orderNumber}: {$message}", null, null, null, $syncRunId);
 
@@ -230,7 +232,7 @@ final class InvoiceService
                     $computedGross,
                     $shopifyGross,
                     $grossDiff
-                );
+                ) . ' ' . self::diagnoseOrder($orderRow);
                 $this->notifyError($shop, $shopRow, $message, $orderRow);
                 ActivityLog::log($this->pdo, $shop, null, 'invoice', 'create', false, "Bestellung {$orderNumber}: {$message}", null, null, null, $syncRunId);
 
@@ -336,6 +338,51 @@ final class InvoiceService
     }
 
     /**
+     * Kurze Aufschluesselung der gelesenen Bestelldaten fuer die Fehlermeldung
+     * der Steuer-/Betrags-Kontrolle (Diagnose bei bearbeiteten Bestellungen,
+     * 2026-11-11): je Position Menge (urspruenglich/aktuell), Einzelpreis,
+     * Rabatt, Steuer; dazu Versand und Shopifys Summen.
+     *
+     * @param array<string, mixed> $orderRow
+     */
+    public static function diagnoseOrder(array $orderRow): string
+    {
+        $parts = [];
+        foreach ((array) ($orderRow['line_items'] ?? []) as $lineItem) {
+            if (!is_array($lineItem)) {
+                continue;
+            }
+            $discount = (float) ($lineItem['line_discount_1'] ?? 0) + (float) ($lineItem['line_discount_2'] ?? 0) + (float) ($lineItem['line_discount_3'] ?? 0);
+            $parts[] = sprintf(
+                '[%s | sku %s | Menge %s/aktuell %s | Preis %s | Rabatt %.2f | Steuer %s]',
+                mb_substr(trim((string) ($lineItem['line_name'] ?? $lineItem['line_title'] ?? '?')), 0, 30),
+                trim((string) ($lineItem['line_sku'] ?? '')) ?: '-',
+                (string) ($lineItem['line_quantity'] ?? '?'),
+                (string) ($lineItem['line_current_quantity'] ?? 'n/a'),
+                (string) ($lineItem['line_price'] ?? '?'),
+                $discount,
+                (string) ($lineItem['line_tax_amount'] ?? '?')
+            );
+        }
+        $shippingTax = [];
+        foreach ((array) ($orderRow['shipping_tax_lines'] ?? []) as $taxLine) {
+            if (is_array($taxLine)) {
+                $shippingTax[] = (string) ($taxLine['shipping_tax_line_rate'] ?? '?') . '/' . (string) ($taxLine['shipping_tax_line_amount'] ?? '?');
+            }
+        }
+
+        return sprintf(
+            'Diagnose: Positionen %s; Versand original %s, rabattiert %s, Steuer (Satz/Betrag) %s; Shopify total_price %s, total_tax %s.',
+            implode(' ', $parts) ?: '-',
+            (string) ($orderRow['shipping_original_price'] ?? 'n/a'),
+            (string) ($orderRow['shipping_discounted_price'] ?? $orderRow['shipping_price'] ?? 'n/a'),
+            implode(',', $shippingTax) ?: '-',
+            (string) ($orderRow['total_price'] ?? 'n/a'),
+            (string) ($orderRow['total_tax'] ?? 'n/a')
+        );
+    }
+
+    /**
      * Sondermodus "Keine Rechnung erstellen, nur Lagerbestand anpassen" (siehe
      * Aufrufstelle in createForOrder()) -- fuer Haendler, die anderswo bereits
      * eine Rechnung/einen Beleg erzeugen (z.B. eigenes Kassensystem) und oView
@@ -392,7 +439,7 @@ final class InvoiceService
                 continue;
             }
 
-            $quantity = (float) ($lineItem['line_quantity'] ?? 0);
+            $quantity = OrderPreparer::effectiveQuantity($lineItem);
             if ($quantity <= 0) {
                 continue;
             }
@@ -869,10 +916,44 @@ final class InvoiceService
             $pdfContent,
             'Rechnung_' . ($invoiceNumber !== '' ? preg_replace('/[^A-Za-z0-9_-]/', '', $invoiceNumber) : 'oView') . '.pdf',
             // Weitere Anhaenge des Merchants (z.B. Widerrufsbelehrung), je Abo freigegeben -- Migration 0089
-            (new \Connect\Mail\ShopAttachments($this->pdo))->forMail($shop)
+            (new \Connect\Mail\ShopAttachments($this->pdo))->forMail($shop),
+            $this->bccAddress($shop, $shopRow, $recipient, $config)
         );
 
         ActivityLog::log($this->pdo, $shop, null, 'invoice', 'send_mail', $result['sent'], $result['note'], $invoiceNumber !== '' ? $invoiceNumber : null);
+    }
+
+    /**
+     * Blindkopie der Rechnungsmail an den Merchant (Migration 0115, Standard: an). Adresse wie bei den
+     * Benachrichtigungen (eigene Adresse, sonst Shopify-Shop-E-Mail), zuletzt die Absender-/Antwortadresse.
+     * null = keine Kopie (aus, keine Adresse, gleiche Adresse wie der Kunde oder Spalte fehlt noch).
+     *
+     * @param array<string, mixed> $shopRow
+     */
+    private function bccAddress(string $shop, array $shopRow, string $recipient, Config $config): ?string
+    {
+        try {
+            $stmt = $this->pdo->prepare('SELECT invoice_mail_bcc_merchant FROM connect_shops WHERE shop = :shop');
+            $stmt->execute(['shop' => $shop]);
+            if ((int) $stmt->fetchColumn() !== 1) {
+                return null;
+            }
+        } catch (\Throwable) {
+            return null; // Migration 0115 fehlt: bisheriges Verhalten (keine Kopie)
+        }
+
+        $candidates = [
+            (new \Connect\Notify\Notifier($this->pdo, $config))->settings($shop)['effective'],
+            (string) ($shopRow['invoice_mail_sender_address'] ?? ''),
+        ];
+        foreach ($candidates as $candidate) {
+            $candidate = trim((string) $candidate);
+            if ($candidate !== '' && filter_var($candidate, FILTER_VALIDATE_EMAIL) !== false) {
+                return strcasecmp($candidate, $recipient) === 0 ? null : $candidate;
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -946,7 +1027,30 @@ final class InvoiceService
             $row['invoice_customer_match'] = self::CUSTOMER_MATCH_EMAIL_NAME;
         }
 
+        // Steuer-Toleranz (Migration 0111) ebenso -- ohne Spalte streng (0)
+        try {
+            $tol = $this->pdo->prepare('SELECT invoice_tax_tolerance_percent FROM connect_shops WHERE shop = :shop');
+            $tol->execute(['shop' => $shop]);
+            $row['invoice_tax_tolerance_percent'] = max(0.0, (float) $tol->fetchColumn());
+        } catch (\Throwable) {
+            $row['invoice_tax_tolerance_percent'] = 0.0;
+        }
+
         return $row;
+    }
+
+    /**
+     * Erlaubte Abweichung der Steuersumme (EUR): feste Grenze 0.10, bei eingestellter
+     * Toleranz (connect_shops.invoice_tax_tolerance_percent) mindestens dieser Anteil
+     * von Shopifys Steuersumme.
+     *
+     * @param array<string, mixed> $shopRow
+     */
+    public static function taxAllowedDiff(array $shopRow, float $shopifyTotalTax): float
+    {
+        $percent = max(0.0, (float) ($shopRow['invoice_tax_tolerance_percent'] ?? 0));
+
+        return max(0.10, abs($shopifyTotalTax) * $percent / 100);
     }
 
     /**

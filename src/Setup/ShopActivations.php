@@ -22,11 +22,53 @@ use PDO;
  */
 final class ShopActivations
 {
+    /**
+     * Rechnungs-Ausloeser je Shop (connect_shops.invoice_trigger, Migration 0106) -> Shopify-Webhook-Thema.
+     * Das Thema steht an der Aktivierung (connect_sync_mappings.trigger_topic); webhooks/_process_order.php
+     * verarbeitet je Thema nur die Aktivierungen mit genau diesem Thema.
+     */
+    public const INVOICE_TRIGGER_TOPICS = [
+        'paid' => 'orders/paid',
+        'fulfilled' => 'orders/fulfilled',
+        'create' => 'orders/create',
+    ];
+
     public function __construct(
         private readonly PDO $pdo,
         private readonly Crypto $crypto,
         private readonly Config $config
     ) {
+    }
+
+    /** Mit Konfiguration und Schluessel aus der Umgebung (fuer Seiten ohne AppContext zur Hand). */
+    public static function fromEnvironment(PDO $pdo): self
+    {
+        $config = Config::load();
+
+        return new self($pdo, new Crypto($config->require('CONNECT_ENCRYPTION_KEY')), $config);
+    }
+
+    /**
+     * Rechnungs-Ausloeser des Shops (paid | fulfilled | create). Fehlt die Spalte noch (Migration
+     * 0106) oder ist der Wert unbekannt, gilt "paid" -- das bisherige Verhalten.
+     */
+    public static function invoiceTrigger(PDO $pdo, string $shop): string
+    {
+        try {
+            $stmt = $pdo->prepare('SELECT invoice_trigger FROM connect_shops WHERE shop = :shop');
+            $stmt->execute(['shop' => $shop]);
+            $value = (string) $stmt->fetchColumn();
+        } catch (\Throwable) {
+            return 'paid';
+        }
+
+        return isset(self::INVOICE_TRIGGER_TOPICS[$value]) ? $value : 'paid';
+    }
+
+    /** Shopify-Webhook-Thema, das beim Shop die Rechnung ausloest. */
+    public static function invoiceTopic(PDO $pdo, string $shop): string
+    {
+        return self::INVOICE_TRIGGER_TOPICS[self::invoiceTrigger($pdo, $shop)];
     }
 
     /**
@@ -132,6 +174,8 @@ final class ShopActivations
             return 'Kein Zielsystem verbunden – die Rechnungserstellung kann so nicht auslösen.';
         }
 
+        $invoiceTopic = self::invoiceTopic($this->pdo, $shop);
+
         $existing = $this->pdo->prepare("SELECT id, enabled, schedule_interval_minutes, settings FROM connect_sync_mappings WHERE shop = :shop AND mapping_kind = 'invoice'");
         $existing->execute(['shop' => $shop]);
         $existingRow = $existing->fetch();
@@ -150,10 +194,11 @@ final class ShopActivations
             $this->pdo->prepare(
                 "UPDATE connect_sync_mappings
                  SET enabled = :enabled, target_connection_id = :target_connection_id,
-                     trigger_type = 'webhook', trigger_topic = 'orders/paid',
+                     trigger_type = 'webhook', trigger_topic = :topic,
                      schedule_interval_minutes = :interval, settings = :settings, updated_at = CURRENT_TIMESTAMP
                  WHERE id = :id"
             )->execute([
+                'topic' => $invoiceTopic,
                 'enabled' => $enabled ? 1 : 0,
                 'target_connection_id' => $targetConnectionId,
                 'interval' => $interval,
@@ -178,9 +223,10 @@ final class ShopActivations
             "INSERT INTO connect_sync_mappings
                 (shop, name, source_connection_id, source_object_id, target_connection_id, mapping_template_id, trigger_type, trigger_topic,
                  schedule_interval_minutes, settings, enabled, managed_by, mapping_kind)
-             VALUES (:shop, 'Rechnungserstellung', :source_connection_id, :source_object_id, :target_connection_id, :template_id, 'webhook', 'orders/paid',
+             VALUES (:shop, 'Rechnungserstellung', :source_connection_id, :source_object_id, :target_connection_id, :template_id, 'webhook', :topic,
                  :interval, :settings, 1, 'system', 'invoice')"
         )->execute([
+            'topic' => $invoiceTopic,
             'shop' => $shop,
             'source_connection_id' => (int) $shopify['id'],
             'source_object_id' => (int) $shopify['order_object_id'],
@@ -271,8 +317,17 @@ final class ShopActivations
             } else {
                 $registrar->unsubscribe((int) $shopify['id'], 'orders/paid', $shopDomain, $accessToken);
             }
+            // Ausloeser "angelegt"/"erfuellt": zusaetzlich dieses Abo (bei "bezahlt" ist es das obige)
+            $invoiceTopic = self::invoiceTopic($this->pdo, $shop);
+            if ($invoiceTopic !== 'orders/paid') {
+                if ($enabled) {
+                    $registrar->subscribe((int) $shopify['id'], $invoiceTopic, $shopDomain, $accessToken);
+                } elseif (!$this->topicInUse((int) $shopify['id'], $invoiceTopic)) {
+                    $registrar->unsubscribe((int) $shopify['id'], $invoiceTopic, $shopDomain, $accessToken);
+                }
+            }
         } catch (\Throwable $e) {
-            $warning = 'Shopify-Abo „Bestellung bezahlt“ konnte nicht aktualisiert werden: ' . $e->getMessage();
+            $warning = 'Shopify-Abo für die Rechnungserstellung konnte nicht aktualisiert werden: ' . $e->getMessage();
         }
 
         $this->pdo->prepare(
@@ -281,6 +336,89 @@ final class ShopActivations
         )->execute(['enabled' => $enabled ? 1 : 0, 'shop' => $shop, 'connection_id' => (int) $shopify['id']]);
 
         return $warning;
+    }
+
+    /**
+     * Rechnungs-Ausloeser des Shops setzen (paid | fulfilled | create): Wert in connect_shops, Thema der
+     * Rechnungs-Aktivierung, Shopify-Abo. Beim Wechsel zaehlen fuer den Nachlauf nur Bestellungen ab JETZT
+     * (settings.backfill_since), sonst wuerden bisher unberuecksichtigte Bestellungen nachtraeglich abgerechnet.
+     *
+     * @return string|null Hinweis, wenn etwas nicht sauber umgestellt werden konnte
+     */
+    public function applyInvoiceTrigger(string $shop, string $trigger): ?string
+    {
+        if (!isset(self::INVOICE_TRIGGER_TOPICS[$trigger])) {
+            return 'Unbekannter Auslöser.';
+        }
+        $old = self::invoiceTrigger($this->pdo, $shop);
+        $oldTopic = self::INVOICE_TRIGGER_TOPICS[$old];
+        $newTopic = self::INVOICE_TRIGGER_TOPICS[$trigger];
+
+        try {
+            $this->pdo->prepare('UPDATE connect_shops SET invoice_trigger = :trigger WHERE shop = :shop')
+                ->execute(['trigger' => $trigger, 'shop' => $shop]);
+        } catch (\Throwable) {
+            return 'Die Einstellung braucht die Migration 0106 (php bin/install.php).';
+        }
+        if ($old === $trigger) {
+            return null;
+        }
+
+        // Aktivierung auf das neue Thema, Nachlauf erst ab jetzt
+        $mapping = $this->pdo->prepare("SELECT id, settings FROM connect_sync_mappings WHERE shop = :shop AND mapping_kind = 'invoice'");
+        $mapping->execute(['shop' => $shop]);
+        $row = $mapping->fetch();
+        if ($row !== false) {
+            $settings = $row['settings'] !== null ? (json_decode((string) $row['settings'], true) ?: []) : [];
+            $settings['backfill_since'] = time();
+            $this->pdo->prepare(
+                'UPDATE connect_sync_mappings SET trigger_topic = :topic, settings = :settings, updated_at = CURRENT_TIMESTAMP WHERE id = :id'
+            )->execute(['topic' => $newTopic, 'settings' => json_encode($settings), 'id' => $row['id']]);
+        }
+
+        // Abos: neues Thema bestellen (nur bei aktiver Rechnungserstellung), altes abbestellen,
+        // wenn keine andere aktive Aktivierung es braucht
+        $invoiceOn = $this->pdo->prepare('SELECT invoice_creation_enabled FROM connect_shops WHERE shop = :shop');
+        $invoiceOn->execute(['shop' => $shop]);
+        $enabled = (int) $invoiceOn->fetchColumn() === 1;
+
+        $shopify = $this->shopifyConnection($shop);
+        if ($shopify === null) {
+            return null;
+        }
+        try {
+            $credentials = \Connect\Shopify\TokenRefresher::fromConfig($this->config)->freshCredentials($this->pdo, $this->crypto, (int) $shopify['id']);
+            $shopDomain = str_replace(['https://', 'http://'], '', (string) ($credentials['base_url'] ?? ''));
+            $accessToken = (string) ($credentials['header_value'] ?? '');
+            $registrar = new WebhookRegistrar(
+                $this->pdo,
+                new HttpClient(),
+                $this->config->require('CONNECT_APP_URL'),
+                $this->config->optional('CONNECT_SHOPIFY_API_VERSION', '2026-07')
+            );
+            if ($enabled) {
+                $registrar->subscribe((int) $shopify['id'], $newTopic, $shopDomain, $accessToken);
+            }
+            if ($oldTopic !== 'orders/paid' && $oldTopic !== $newTopic && !$this->topicInUse((int) $shopify['id'], $oldTopic)) {
+                $registrar->unsubscribe((int) $shopify['id'], $oldTopic, $shopDomain, $accessToken);
+            }
+        } catch (\Throwable $e) {
+            return 'Shopify-Abo konnte nicht umgestellt werden: ' . $e->getMessage() . ' (die Einstellung ist gespeichert).';
+        }
+
+        return null;
+    }
+
+    /** Lauscht noch eine aktive, webhook-getriggerte Aktivierung dieser Connection auf das Thema? */
+    private function topicInUse(int $connectionId, string $topic): bool
+    {
+        $stmt = $this->pdo->prepare(
+            "SELECT 1 FROM connect_sync_mappings
+             WHERE source_connection_id = :connection_id AND trigger_type = 'webhook' AND trigger_topic = :topic AND enabled = 1 LIMIT 1"
+        );
+        $stmt->execute(['connection_id' => $connectionId, 'topic' => $topic]);
+
+        return $stmt->fetchColumn() !== false;
     }
 
     /**

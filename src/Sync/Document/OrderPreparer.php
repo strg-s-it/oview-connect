@@ -41,6 +41,21 @@ final class OrderPreparer
     ];
 
     /**
+     * Aktuelle Menge einer Bestellposition: nach Bearbeitung der Bestellung
+     * (Position entfernt/Menge geaendert) gilt currentQuantity (Migration 0110),
+     * sonst -- Migration fehlt oder Datensatz vorher gecacht -- die urspruengliche Menge.
+     *
+     * @param array<string, mixed> $lineItem
+     */
+    public static function effectiveQuantity(array $lineItem): float
+    {
+        $key = isset($lineItem['line_current_quantity']) && is_numeric($lineItem['line_current_quantity'])
+            ? 'line_current_quantity' : 'line_quantity';
+
+        return (float) ($lineItem[$key] ?? 0);
+    }
+
+    /**
      * @param array<string, mixed> $orderRow
      * @param bool $pricesIncludeTax connect_shops.shopify_prices_include_tax (NULL gilt als true)
      * @param ?callable(string): ?array{id: string, name: ?string} $articleResolver Vergleichswert der Position -> ID
@@ -59,10 +74,16 @@ final class OrderPreparer
                 continue;
             }
 
-            $quantity = (float) ($lineItem['line_quantity'] ?? 0);
+            $quantity = self::effectiveQuantity($lineItem);
             if ($quantity <= 0) {
                 continue;
             }
+            // Bearbeitete Bestellung (Menge reduziert): Shopify meldet Steuer und
+            // Rabatt-Zuteilungen je Position vermutlich fuer die URSPRUENGLICHE Menge
+            // -> anteilig auf die aktuelle Menge umrechnen. Stimmt die Annahme nicht,
+            // fangen Steuer- und Betrags-Kontrolle es ab (Rechnung wird nicht angelegt).
+            $originalQuantity = (float) ($lineItem['line_quantity'] ?? 0);
+            $scale = $originalQuantity > 0 && $quantity < $originalQuantity ? $quantity / $originalQuantity : 1.0;
 
             // line_name = Produkttitel MIT Variante ("Katze - Mittel", Migration
             // 0066), faellt fuer aeltere Cache-Datensaetze auf den reinen Titel zurueck.
@@ -83,9 +104,11 @@ final class OrderPreparer
             // Summe faengt die Betrags-Kontrolle ab.
             $hasAllocations = array_key_exists('line_discount_1', $lineItem);
             if ($hasAllocations) {
-                $lineDiscount = (float) ($lineItem['line_discount_1'] ?? 0)
+                $lineDiscount = round((
+                    (float) ($lineItem['line_discount_1'] ?? 0)
                     + (float) ($lineItem['line_discount_2'] ?? 0)
-                    + (float) ($lineItem['line_discount_3'] ?? 0);
+                    + (float) ($lineItem['line_discount_3'] ?? 0)
+                ) * $scale, 2);
                 $lineTotal = round(((float) ($lineItem['line_price'] ?? 0)) * $quantity - $lineDiscount, 2);
             } else {
                 $lineTotal = round(((float) ($lineItem['line_discounted_price'] ?? $lineItem['line_price'] ?? 0)) * $quantity, 2);
@@ -94,7 +117,7 @@ final class OrderPreparer
             // Rabattbetrag VOR der Netto->Brutto-Umrechnung (beide Werte in Shopifys Preisbasis).
             $discountAmount = max(0.0, round($unitPriceOriginal * $quantity - $lineTotal, 2));
             $taxRateFraction = (float) ($lineItem['line_tax_rate'] ?? 0);
-            $taxAmount = (float) ($lineItem['line_tax_amount'] ?? 0);
+            $taxAmount = round((float) ($lineItem['line_tax_amount'] ?? 0) * $scale, 2);
 
             // Live beobachtet (Migration 0062, Bestellung #1218/Shop 3bnyc1-n9):
             // Shopify liefert fuer eine "taxable": false-Position TROTZDEM einen
@@ -148,7 +171,7 @@ final class OrderPreparer
             ]);
         }
 
-        foreach ($this->shippingLines($orderRow, $pricesIncludeTax, $computedTotalTax, $notes) as $shippingLine) {
+        foreach ($this->shippingLines($orderRow, $pricesIncludeTax, $computedTotalTax, $notes, $lines) as $shippingLine) {
             $lines[] = $shippingLine;
         }
 
@@ -373,10 +396,17 @@ final class OrderPreparer
      * Steuersatz, sonst bleibt es beim rabattierten Preis.
      *
      * @param array<string, mixed> $orderRow
+     * Gratisversand mit Mischsatz (Bestellung #11134): Bei "Versand anteilig besteuern" und gemischten
+     * Warenkorb-Saetzen meldet Shopify fuer den Versand einen rechnerischen Satz (z.B. 15,3396 %), den
+     * es in keinem Kassensystem gibt (helloCash: tax_rate_not_found). Ist der Versand gratis (bezahlt 0,
+     * Steuer 0), ist der Satz ohne Wirkung auf den Betrag -- dann zaehlt der Satz mit dem groessten
+     * Nettoanteil der Artikelpositionen. Versand MIT Kosten bleibt bewusst unveraendert.
+     *
      * @param list<string> $notes
+     * @param list<array<string, mixed>> $items bereits aufbereitete Artikelpositionen
      * @return list<array<string, mixed>>
      */
-    private function shippingLines(array $orderRow, bool $pricesIncludeTax, float &$computedTotalTax, array &$notes): array
+    private function shippingLines(array $orderRow, bool $pricesIncludeTax, float &$computedTotalTax, array &$notes, array $items = []): array
     {
         $shippingPrice = (float) ($orderRow['shipping_discounted_price'] ?? $orderRow['shipping_price'] ?? 0);
         $shippingOriginal = (float) ($orderRow['shipping_original_price'] ?? 0);
@@ -400,6 +430,31 @@ final class OrderPreparer
 
         if ($rateInfos === []) {
             return [self::shippingLine('Versand', $hasDiscount ? $shippingOriginal : $shippingPrice, $shippingPrice, 0, 0.0, $hasDiscount)];
+        }
+
+        // Gratisversand mit Satz, den keine Artikelposition hat: Satz ohne Wirkung -> echter Satz der Artikel
+        if (count($rateInfos) === 1 && $shippingPrice <= 0 && abs($rateInfos[0]['tax_amount']) < 0.005) {
+            $netByRate = [];
+            foreach ($items as $item) {
+                $net = (float) ($item['line_total_net'] ?? 0);
+                if ($net > 0) {
+                    $key = (string) round((float) ($item['tax_rate_percent'] ?? 0), 2);
+                    $netByRate[$key] = ($netByRate[$key] ?? 0.0) + $net;
+                }
+            }
+            $known = false;
+            foreach (array_keys($netByRate) as $key) {
+                if (abs((float) $key - $rateInfos[0]['rate']) < 0.01) {
+                    $known = true;
+                }
+            }
+            if (!$known && $netByRate !== []) {
+                arsort($netByRate);
+                $realRate = (float) array_key_first($netByRate);
+                $notes[] = 'Gratisversand: Shopifys Mischsatz ' . round($rateInfos[0]['rate'], 4) . '% hat keine Wirkung (Steuer 0), Versand mit ' . round($realRate, 2) . '% angelegt.';
+
+                return [self::shippingLine('Versand', $hasDiscount ? $shippingOriginal : $shippingPrice, $shippingPrice, $realRate, 0.0, $hasDiscount)];
+            }
         }
 
         // Netto -> Brutto (Migration 0063), VOR der Aufteilung auf die Saetze.

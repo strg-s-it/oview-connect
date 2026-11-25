@@ -36,7 +36,7 @@ use Connect\Shopify\ScopeCheck;
  */
 const HELLOCASH_TOKEN_STEPS = [
     'Halte diese Seite offen und melde dich in einem zweiten Tab bei helloCash an (myhellocash.com). Öffne im Menü <strong>Registrierkasse → Einstellungen → „helloCash API“</strong>.',
-    'Achte darauf, dass für den Token <strong>„Alle Scopes“</strong> (Lesen und Schreiben) gilt – vor allem Artikel, Rechnungen, Kunden, Mitarbeiter, Zahlungsarten und Firma.',
+    '<strong>Aktiviere beim neuen Token alle Berechtigungen („Alle Scopes“, Lesen und Schreiben).</strong> Fehlt eine, kann oView dort nichts abgleichen – etwa bei Artikeln, Rechnungen, Kunden, Mitarbeitern, Zahlungsarten oder Firma – und wir können deinen Shop nicht umstellen.',
     'Klicke auf <strong>„Neu generieren“</strong>. Wichtig: Dein bisheriger Token funktioniert ab diesem Moment nicht mehr.',
     'Kopiere den neuen Token <strong>sofort</strong> und füge ihn unten ein. Wir setzen ihn gleich überall ein, damit Lagerabgleich und Rechnungen ohne Unterbrechung weiterlaufen.',
 ];
@@ -56,7 +56,7 @@ $shop = (string) ($_GET['shop'] ?? $_POST['shop'] ?? '');
 $expires = (int) ($_GET['exp'] ?? $_POST['exp'] ?? 0);
 $sig = (string) ($_GET['sig'] ?? $_POST['sig'] ?? '');
 $validFormat = $shop !== '' && preg_match('/^[a-zA-Z0-9\-]+$/', $shop) === 1;
-$signatureOk = $validFormat && hash_equals($service->prepareSignature($shop, $expires), $sig);
+$signatureOk = $validFormat && $service->prepareSignatureValid($shop, $expires, $sig);
 $expired = $signatureOk && $expires < time();
 $valid = $signatureOk && !$expired;
 
@@ -66,9 +66,11 @@ if ($valid && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
     if ($token === '' || strlen($token) > 2000 || preg_match('/\s/', $token) === 1) {
         $result = ['ok' => false, 'missing' => [], 'optional_missing' => [], 'objects' => [], 'error' => 'Bitte den Token ohne Leerzeichen einfügen.', 'valid' => false, 'v1_ok' => null, 'legacy' => 'skipped', 'applied' => false, 'throttled' => false];
     } else {
+        $v1Detail = null;
         try {
             $check = new TargetAccessCheck($pdo, $crypto, new ConnectorFactory($pdo, $crypto, new HttpClient()), $config, new HttpClient());
             $result = $check->prepare($shop, $token);
+            $v1Detail = $check->v1ProbeDetail;
         } catch (\Throwable $ex) {
             error_log('[prepare] ' . $shop . ': ' . $ex);
             $result = ['ok' => false, 'missing' => [], 'optional_missing' => [], 'objects' => [], 'error' => 'Die Prüfung ist gerade nicht möglich. Bitte sofort an office@oview.at schreiben, falls du den Token schon neu generiert hast.', 'valid' => false, 'v1_ok' => null, 'legacy' => 'skipped', 'applied' => false, 'throttled' => false];
@@ -83,6 +85,7 @@ if ($valid && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
                 . 'Alte Welt (hellocash_binding.token): ' . ($legacyOk ? 'aktualisiert' : ($result['legacy'] === 'not_found' ? 'Shop NICHT gefunden' : 'NICHT aktualisiert – ' . $result['legacy']))
                 . ($legacyOk ? '' : "\n→ Der alte Token ist ungültig, die alte Welt steht für diesen Shop! Token bitte manuell in hellocash_binding.token eintragen.")
                 . "\nAPI v1 (alte Welt) mit neuem Token: " . ($result['v1_ok'] === true ? 'funktioniert' : ($result['v1_ok'] === false ? 'FUNKTIONIERT NICHT' : 'nicht prüfbar'))
+                . ($v1Detail !== null && $result['v1_ok'] !== true ? ' [' . $v1Detail . ']' : '')
                 . "\nAPI v2 (Connect): " . ($result['ok'] ? 'Zugriff vollständig' : 'es fehlen Berechtigungen für ' . implode(', ', $result['missing']))
                 . "\nConnect-Connection: " . ($result['applied'] ? 'aktualisiert' : 'noch keine – wird beim Umzug (Schritt 2) verwendet')
             );
@@ -108,6 +111,17 @@ if ($valid) {
 }
 $prepared = $valid ? TargetAccessCheck::preparedRow($pdo, $shop) : null;
 $tokenDone = $prepared !== null && (int) $prepared['access_ok'] === 1;
+// Frisch eingetragener, vollstaendiger Token zaehlt sofort (die Zeile $prepared ist davor schon gelesen worden)
+if ($result !== null && $result['ok']) {
+    $tokenDone = true;
+}
+$openSteps = [];
+if ($scopesMissing !== []) {
+    $openSteps[] = 'Schritt 1 (Berechtigungen in Shopify bestätigen)';
+}
+if (!$tokenDone) {
+    $openSteps[] = 'Schritt 2 (helloCash-Token mit allen Berechtigungen)';
+}
 
 $e = static fn (string $s): string => htmlspecialchars($s, ENT_QUOTES);
 ?>
@@ -148,6 +162,12 @@ $e = static fn (string $s): string => htmlspecialchars($s, ENT_QUOTES);
         <?php else: ?>
             <h1>Umstieg vorbereiten</h1>
             <p>Wir stellen <?php echo $e($brand->shortName); ?> für deinen Shop <strong><?php echo $e($shop); ?></strong> auf eine neue, schnellere Technik um. Dafür brauchen wir zwei Dinge von dir – das dauert etwa fünf Minuten. Bis zur Umstellung läuft alles wie gewohnt weiter.</p>
+            <p><strong>Bitte erledige beide Schritte.</strong> Wir können deinen Shop erst umstellen, wenn Schritt 1 (Shopify) <em>und</em> Schritt 2 (helloCash) abgeschlossen sind – Schritt 2 allein reicht nicht.</p>
+            <?php if ($openSteps !== []): ?>
+                <div class="bad" style="margin-top:0">Noch offen: <?php echo $e(implode(' und ', $openSteps)); ?>.</div>
+            <?php else: ?>
+                <div class="ok" style="margin-top:0"><strong>Beide Schritte sind erledigt.</strong> Du musst nichts weiter tun – wir melden uns, sobald dein Shop umgestellt ist.</div>
+            <?php endif; ?>
         <?php endif; ?>
     </div>
 
@@ -166,7 +186,7 @@ $e = static fn (string $s): string => htmlspecialchars($s, ENT_QUOTES);
         <div class="card">
             <h2><span class="num<?php echo $tokenDone ? ' done' : ''; ?>"><?php echo $tokenDone ? '✓' : '2'; ?></span> helloCash-Token neu generieren</h2>
             <?php if ($result !== null && $result['ok']): ?>
-                <div class="ok"><strong>Danke, der neue Token funktioniert und ist überall eingesetzt.</strong> <?php echo $e($brand->shortName); ?> kann damit alles lesen, was es braucht. Du musst nichts weiter tun – wir melden uns, sobald dein Shop umgestellt ist.</div>
+                <div class="ok"><strong>Danke, der neue Token funktioniert und ist überall eingesetzt.</strong> <?php echo $e($brand->shortName); ?> kann damit alles lesen, was es braucht.<?php echo $scopesMissing !== [] ? ' <strong>Bitte erledige noch Schritt 1 (Berechtigungen in Shopify bestätigen).</strong>' : ' Du musst nichts weiter tun – wir melden uns, sobald dein Shop umgestellt ist.'; ?></div>
             <?php else: ?>
                 <?php if ($tokenDone): ?>
                     <p class="muted">Erledigt am <?php echo $e(date('d.m.Y', strtotime((string) $prepared['submitted_at']) ?: time())); ?>. Nur wenn du den Token in helloCash noch einmal neu generierst, musst du den neuen hier wieder eintragen.</p>

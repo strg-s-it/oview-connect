@@ -652,6 +652,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'refre
     } catch (\Throwable) {
         // Migration 0072 noch nicht eingespielt
     }
+    // Blindkopie an den Merchant (Migration 0115) ebenso getrennt
+    try {
+        $pdo->prepare('UPDATE connect_shops SET invoice_mail_bcc_merchant = :bcc WHERE shop = :shop')
+            ->execute(['bcc' => isset($_POST['invoice_mail_bcc_merchant']) ? 1 : 0, 'shop' => $shop]);
+    } catch (\Throwable) {
+        // Migration 0115 noch nicht eingespielt
+    }
     // Kundenzuordnung (Migration 0095) ebenso getrennt
     if (isset(\Connect\Sync\InvoiceService::CUSTOMER_MATCH_LABELS[$_POST['invoice_customer_match'] ?? ''])) {
         try {
@@ -823,6 +830,58 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_
 }
 
 // -----------------------------------------------------------------------
+// POST: Rechnungs-Ausloeser -- welcher Shopify-Webhook die Rechnung erzeugt (connect_shops.invoice_trigger,
+// Migration 0106): paid | fulfilled | create. ADMIN-ONLY: bei "angelegt"/"erfuellt" werden auch unbezahlte
+// Bestellungen abgerechnet. Siehe Connect\Setup\ShopActivations::applyInvoiceTrigger().
+// -----------------------------------------------------------------------
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_invoice_trigger' && !$isAdmin) {
+    $flashMessage = 'Der Auslöser der Rechnung kann nur im Admin-Bereich geändert werden.';
+    $flashType = 'danger';
+} elseif ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_invoice_trigger') {
+    $triggerChoice = (string) ($_POST['invoice_trigger'] ?? '');
+    if (!isset(\Connect\Setup\ShopActivations::INVOICE_TRIGGER_TOPICS[$triggerChoice])) {
+        $flashMessage = 'Bitte einen der angebotenen Auslöser wählen.';
+        $flashType = 'danger';
+    } else {
+        $triggerWarning = \Connect\Setup\ShopActivations::fromEnvironment($pdo)->applyInvoiceTrigger($shop, $triggerChoice);
+        $flashMessage = 'Auslöser der Rechnung gespeichert: ' . \Connect\Setup\ShopActivations::INVOICE_TRIGGER_TOPICS[$triggerChoice] . '.';
+        $flashType = 'success';
+        if ($triggerWarning !== null) {
+            $flashMessage .= ' (Achtung: ' . $triggerWarning . ')';
+            $flashType = 'danger';
+        }
+    }
+}
+
+// -----------------------------------------------------------------------
+// POST: Steuer-Kontrolle der Rechnungen -- Toleranz in Prozent (Migration 0111,
+// connect_shops.invoice_tax_tolerance_percent), ADMIN-ONLY: schwaecht eine Sicherheitskontrolle
+// ab. 0 = streng (Standard). Siehe InvoiceService::taxAllowedDiff().
+// -----------------------------------------------------------------------
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_tax_tolerance' && !$isAdmin) {
+    $flashMessage = 'Die Steuer-Kontrolle kann nur im Admin-Bereich geändert werden.';
+    $flashType = 'danger';
+} elseif ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_tax_tolerance') {
+    $tolRaw = str_replace(',', '.', trim((string) ($_POST['tolerance'] ?? '0')));
+    if (!is_numeric($tolRaw) || (float) $tolRaw < 0 || (float) $tolRaw > 100) {
+        $flashMessage = 'Toleranz: bitte einen Wert zwischen 0 und 100 (Prozent) eingeben.';
+        $flashType = 'danger';
+    } else {
+        try {
+            $pdo->prepare('UPDATE connect_shops SET invoice_tax_tolerance_percent = :tol WHERE shop = :shop')
+                ->execute(['tol' => round((float) $tolRaw, 2), 'shop' => $shop]);
+            $flashMessage = (float) $tolRaw > 0
+                ? 'Steuer-Toleranz gespeichert: ' . round((float) $tolRaw, 2) . ' % der Shopify-Steuersumme.'
+                : 'Steuer-Kontrolle ist wieder streng.';
+            $flashType = 'success';
+        } catch (\Throwable) {
+            $flashMessage = 'Die Einstellung braucht die Migration 0111 (php bin/install.php).';
+            $flashType = 'danger';
+        }
+    }
+}
+
+// -----------------------------------------------------------------------
 // POST: Ausverkaufte Produkte ausblenden / wieder einblenden -- ADMIN-ONLY,
 // gleiches Muster wie der automatische Produktimport oben. Siehe
 // Connect\Sync\ProductVisibilityRunner (Migration 0073).
@@ -956,6 +1015,22 @@ $mappingsStmt = $pdo->prepare(
 $mappingsStmt->execute(['shop' => $shop]);
 $mappings = $mappingsStmt->fetchAll();
 
+// Uebersetzungs-Aktivierungen (Ziel gesetzt, z.B. MGM-Auftraege) nur zur Anzeige hier; bearbeitet
+// wird in admin/mappings.php. Ohne diese Liste sieht man sie auf dieser Seite gar nicht.
+$translationMappingsStmt = $pdo->prepare(
+    'SELECT m.id, m.name, m.enabled, m.trigger_topic, m.schedule_interval_minutes,
+            sc.label AS source_connection_label, tc.label AS target_connection_label,
+            (SELECT r.status FROM connect_sync_runs r WHERE r.sync_mapping_id = m.id ORDER BY r.id DESC LIMIT 1) AS last_run_status,
+            (SELECT r.started_at FROM connect_sync_runs r WHERE r.sync_mapping_id = m.id ORDER BY r.id DESC LIMIT 1) AS last_run_started_at
+     FROM connect_sync_mappings m
+     JOIN connect_connections sc ON sc.id = m.source_connection_id
+     JOIN connect_connections tc ON tc.id = m.target_connection_id
+     WHERE m.shop = :shop AND m.target_connection_id IS NOT NULL
+     ORDER BY m.id DESC'
+);
+$translationMappingsStmt->execute(['shop' => $shop]);
+$translationMappings = $translationMappingsStmt->fetchAll();
+
 // Fuer das Anlage-Formular: alle global gepflegten Job-Vorlagen (siehe
 // admin/sync_job_templates.php) + alle Connections dieses Shops -- welche
 // Connection tatsaechlich zur gewaehlten Vorlage passt (Connector Type),
@@ -1042,6 +1117,15 @@ try {
 } catch (\Throwable) {
     $shopSettings['invoice_signature_mandatory'] = null;
 }
+// Blindkopie an den Merchant (Migration 0115) getrennt gelesen, null = Spalte fehlt noch (Option ausgeblendet)
+try {
+    $bccStmt = $pdo->prepare('SELECT invoice_mail_bcc_merchant FROM connect_shops WHERE shop = :shop');
+    $bccStmt->execute(['shop' => $shop]);
+    $bccValue = $bccStmt->fetchColumn();
+    $shopSettings['invoice_mail_bcc_merchant'] = $bccValue !== false ? (int) $bccValue : 1;
+} catch (\Throwable) {
+    $shopSettings['invoice_mail_bcc_merchant'] = null;
+}
 // Kundenzuordnung (Migration 0095) getrennt gelesen, null = Spalte fehlt noch (Auswahl ausgeblendet)
 try {
     $matchStmt = $pdo->prepare('SELECT invoice_customer_match FROM connect_shops WHERE shop = :shop');
@@ -1063,7 +1147,12 @@ try {
     $lowStockThreshold = null;
 }
 // Name des Kassensystems fuer die Merchant-Texte statt "Zielsystem"
-$targetName = \Connect\Sync\TargetCapabilities::forShop($pdo, $shop)['target_name'];
+$targetCaps = \Connect\Sync\TargetCapabilities::forShop($pdo, $shop);
+$targetName = $targetCaps['target_name'];
+// Die Karte "Rechnungen / Aufträge" gilt nur für Zielsysteme mit Rechnungs-Operation (z. B. helloCash).
+// Systeme ohne (z. B. MGM: Aufträge über eine Mapping-Aktivierung) bekommen nur einen Info-Hinweis.
+// Ohne verbundenes Zielsystem bleibt die Karte wie bisher sichtbar.
+$showInvoiceCard = !$targetCaps['connected'] || $targetCaps['invoices'];
 $shopPlan = \Connect\Billing\Plans::forShop($pdo, $shop);
 $ownSmtpAllowed = \Connect\Billing\Plans::allowsOwnSmtp($shopPlan);
 // Ausblenden/Einblenden (Migration 0073) getrennt gelesen, null = Spalten fehlen noch
@@ -1083,6 +1172,25 @@ try {
     ];
 } catch (\Throwable) {
     $visibilitySettings = null;
+}
+
+// Rechnungs-Ausloeser (Migration 0106) und ob der Shop in Connect laeuft (sonst verarbeitet Connect keine Webhooks)
+$invoiceTrigger = \Connect\Setup\ShopActivations::invoiceTrigger($pdo, $shop);
+try {
+    $liveStmt = $pdo->prepare('SELECT live_in_connect FROM connect_shops WHERE shop = :shop');
+    $liveStmt->execute(['shop' => $shop]);
+    $shopIsLive = (int) $liveStmt->fetchColumn() === 1;
+} catch (\Throwable) {
+    $shopIsLive = false;
+}
+
+// Steuer-Toleranz (Migration 0111) getrennt gelesen, null = Spalte fehlt noch
+try {
+    $taxToleranceStmt = $pdo->prepare('SELECT invoice_tax_tolerance_percent FROM connect_shops WHERE shop = :shop');
+    $taxToleranceStmt->execute(['shop' => $shop]);
+    $taxTolerancePercent = (float) $taxToleranceStmt->fetchColumn();
+} catch (\Throwable) {
+    $taxTolerancePercent = null;
 }
 
 // Card "Varianten-Import" nur zeigen, wenn ueberhaupt eine der Connections
@@ -1315,6 +1423,64 @@ require __DIR__ . '/_header.php';
                 <?php endif; ?>
             </div>
         </div>
+
+        <?php if (count($translationMappings) > 0): ?>
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">Aktivierte Mapping-Vorlagen (Übersetzungen)</h3>
+                    </div>
+                    <p class="text-secondary px-3 pt-2">
+                        Nur zur Ansicht. Hier erscheinen Aktivierungen mit Zielsystem (z. B. Rechnung, MGM-Auftrag). Bearbeiten,
+                        testen und ein-/ausschalten unter <a href="mappings.php?shop=<?php echo urlencode($shop); ?>">Mappings</a>.
+                    </p>
+                    <div class="table-responsive">
+                        <table class="table table-vcenter card-table">
+                            <thead>
+                                <tr>
+                                    <th>Vorlage</th>
+                                    <th>Quelle → Ziel</th>
+                                    <th>Auslöser</th>
+                                    <th>Aktiv</th>
+                                    <th>Letzter Lauf</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($translationMappings as $tm): ?>
+                                    <tr>
+                                        <td><a href="mapping_edit.php?id=<?php echo (int) $tm['id']; ?>&amp;shop=<?php echo urlencode($shop); ?>"><?php echo htmlspecialchars((string) $tm['name']); ?></a></td>
+                                        <td><?php echo htmlspecialchars((string) $tm['source_connection_label']); ?> → <?php echo htmlspecialchars((string) $tm['target_connection_label']); ?></td>
+                                        <td class="text-secondary">
+                                            <?php if ($tm['trigger_topic'] !== null): ?>
+                                                <div>Webhook (<?php echo htmlspecialchars((string) $tm['trigger_topic']); ?>)</div>
+                                            <?php endif; ?>
+                                            <?php if ($tm['schedule_interval_minutes'] !== null): ?>
+                                                <div>Zeitplan (<?php echo (int) $tm['schedule_interval_minutes']; ?> Min.)</div>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td>
+                                            <span class="badge <?php echo ((int) $tm['enabled']) === 1 ? 'bg-green-lt' : 'bg-secondary-lt'; ?>">
+                                                <?php echo ((int) $tm['enabled']) === 1 ? 'aktiv' : 'inaktiv'; ?>
+                                            </span>
+                                        </td>
+                                        <td class="text-secondary">
+                                            <?php if ($tm['last_run_started_at'] !== null): ?>
+                                                <span class="badge <?php echo htmlspecialchars($statusBadge[$tm['last_run_status']] ?? 'bg-secondary-lt'); ?>">
+                                                    <?php echo htmlspecialchars((string) $tm['last_run_status']); ?>
+                                                </span>
+                                                <?php echo htmlspecialchars((string) $tm['last_run_started_at']); ?>
+                                            <?php else: ?>
+                                                noch nie gelaufen
+                                            <?php endif; ?>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        <?php endif; ?>
 
         <?php if (count($syncJobTemplates) > 0 && count($connectionsForShop) > 0): ?>
             <div class="col-12">
@@ -1597,6 +1763,58 @@ require __DIR__ . '/_header.php';
                             </div>
                         </form>
                     <?php endif; ?>
+                </div>
+            </div>
+        </div>
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">Steuer-Kontrolle der Rechnungen (Admin-only)</h3>
+                </div>
+                <div class="card-body">
+                    <?php if ($taxTolerancePercent === null): ?>
+                        <div class="alert alert-warning mb-0">Migration 0111 ist noch nicht eingespielt.</div>
+                    <?php else: ?>
+                        <p class="text-secondary">
+                            Vor jeder Rechnung vergleicht oView die Steuersumme aus den Positionen mit Shopifys Steuersumme. Normalerweise
+                            streng (0 %, erlaubt sind 0,10 €). Hier lässt sich für diesen Shop eine Abweichung in Prozent von Shopifys
+                            Steuersumme erlauben, wenn Shopifys Zahl nachweislich nicht stimmt. Die Betrags-Kontrolle bleibt immer streng.
+                            Greift die Toleranz, steht ein Hinweis im Protokoll.
+                        </p>
+                        <form method="post" class="d-flex align-items-center gap-2" autocomplete="off">
+                            <input type="hidden" name="action" value="save_tax_tolerance">
+                            <label class="mb-0" for="tax-tolerance">Toleranz</label>
+                            <input type="text" id="tax-tolerance" name="tolerance" inputmode="decimal" class="form-control" style="width:90px" value="<?php echo htmlspecialchars((string) $taxTolerancePercent); ?>" autocomplete="off">
+                            <span class="text-secondary">% (0 = streng)</span>
+                            <button type="submit" class="btn btn-primary">Speichern</button>
+                        </form>
+                    <?php endif; ?>
+                </div>
+            </div>
+        </div>
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">Auslöser der Rechnung (Admin-only)</h3>
+                </div>
+                <div class="card-body">
+                    <p class="text-secondary">
+                        Welcher Shopify-Webhook die Rechnung erzeugt. Standard ist „bezahlt“. Bei „erfüllt“ und „angelegt“ werden
+                        <strong>auch unbezahlte Bestellungen</strong> abgerechnet. Beim Wechsel zählen nur Bestellungen ab jetzt.
+                    </p>
+                    <?php if (!$shopIsLive): ?>
+                        <div class="alert alert-warning">Dieser Shop läuft noch in der alten Welt. Connect verarbeitet Bestell-Webhooks erst, wenn er in Connect aktiv ist.</div>
+                    <?php endif; ?>
+                    <form method="post" class="d-flex align-items-center gap-2 flex-wrap" autocomplete="off">
+                        <input type="hidden" name="action" value="save_invoice_trigger">
+                        <label class="mb-0" for="invoice-trigger">Auslöser</label>
+                        <select id="invoice-trigger" name="invoice_trigger" class="form-select" style="max-width:360px">
+                            <option value="paid" <?php echo $invoiceTrigger === 'paid' ? 'selected' : ''; ?>>Bestellung bezahlt (orders/paid, Standard)</option>
+                            <option value="fulfilled" <?php echo $invoiceTrigger === 'fulfilled' ? 'selected' : ''; ?>>Bestellung erfüllt / versendet (orders/fulfilled)</option>
+                            <option value="create" <?php echo $invoiceTrigger === 'create' ? 'selected' : ''; ?>>Bestellung angelegt (orders/create)</option>
+                        </select>
+                        <button type="submit" class="btn btn-primary">Speichern</button>
+                    </form>
                 </div>
             </div>
         </div>
@@ -1946,6 +2164,22 @@ require __DIR__ . '/_header.php';
             </div>
         </div>
 
+        <?php if (!$showInvoiceCard): ?>
+        <div class="col-12 setup-anchor" id="setup-invoice">
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">Aufträge</h3>
+                </div>
+                <div class="card-body">
+                    <p class="text-secondary mb-0">
+                        Bestellungen aus Shopify legt oView automatisch als Auftrag in <?php echo htmlspecialchars($targetName); ?> an.
+                        Dafür gibt es hier nichts einzustellen – die Einrichtung übernimmt oView für dich.
+                        Bei Fragen oder Änderungswünschen melde dich bei uns.
+                    </p>
+                </div>
+            </div>
+        </div>
+        <?php else: ?>
         <div class="col-12 setup-anchor" id="setup-invoice">
             <div class="card">
                 <div class="card-header">
@@ -2084,6 +2318,23 @@ require __DIR__ . '/_header.php';
                                 <textarea rows="6" name="invoice_mail_message" class="form-control"><?php echo htmlspecialchars((string) ($shopSettings['invoice_mail_message'] ?? '')); ?></textarea>
                                 <small class="text-secondary">Platzhalter: %VORNAME%, %NACHNAME%, %BESTELLUNG%, %DATUM%.</small>
                             </div>
+                            <?php if ($shopSettings['invoice_mail_bcc_merchant'] !== null): ?>
+                                <div class="col-12">
+                                    <label class="form-check">
+                                        <input type="checkbox" name="invoice_mail_bcc_merchant" class="form-check-input" <?php echo (int) $shopSettings['invoice_mail_bcc_merchant'] === 1 ? 'checked' : ''; ?>>
+                                        <span class="form-check-label">Kopie jeder Rechnungsmail an mich senden (Blindkopie)</span>
+                                    </label>
+                                    <small class="text-secondary d-block">
+                                        So kannst du prüfen, ob der Mailversand funktioniert, und weißt für den Versand, was der Kunde bekommen hat. Der Kunde sieht deine Adresse nicht.
+                                        Die Kopie geht an
+                                        <?php if ($notifySettings['effective'] !== null): ?>
+                                            <strong><?php echo htmlspecialchars((string) $notifySettings['effective']); ?></strong> (Adresse aus „Benachrichtigungen“).
+                                        <?php else: ?>
+                                            deine Absender-/Antwortadresse (oder, falls leer, gibt es keine Kopie).
+                                        <?php endif; ?>
+                                    </small>
+                                </div>
+                            <?php endif; ?>
                             <div class="col-12">
                                 <details>
                                     <summary class="text-secondary" style="cursor:pointer;">Eigenes SMTP-Konto verwenden (optional)</summary>
@@ -2182,6 +2433,7 @@ require __DIR__ . '/_header.php';
                 </div>
             </div>
         </div>
+        <?php endif; ?>
 
         <div class="col-12 setup-anchor" id="setup-notify">
             <div class="card">

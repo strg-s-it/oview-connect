@@ -362,6 +362,11 @@ final class MappingEngine
                 if ($value === null || is_array($value)) {
                     return '';
                 }
+                // Shopifys Platzhalter fuer Produkte ohne Varianten ("Default Title") nie in Texte uebernehmen,
+                // z.B. Artikelname "{{title}} {{variant_title}}" bleibt dann einfach "{{title}}"
+                if ($value === 'Default Title') {
+                    return '';
+                }
                 if (is_bool($value)) {
                     return $value ? 'ja' : 'nein';
                 }

@@ -284,13 +284,15 @@ final class DocumentPipeline
         // Shopifys Steuersumme (Migration 0057).
         if ($record['total_tax'] !== null) {
             $taxDiff = abs($preparedOrder['computed_total_tax'] - (float) $record['total_tax']);
-            if ($taxDiff > 0.10) {
+            if ($taxDiff > 0.10 && $taxDiff <= InvoiceService::taxAllowedDiff($shopRow, (float) $record['total_tax'])) {
+                $notes[] = sprintf('Steuer-Kontrolle: Abweichung %.2f EUR liegt innerhalb der eingestellten Toleranz (%s %%).', $taxDiff, (string) (float) $shopRow['invoice_tax_tolerance_percent']);
+            } elseif ($taxDiff > 0.10) {
                 $out['error'] = sprintf(
                     'Steuer-Kontrolle fehlgeschlagen: berechnete Steuersumme %.2f EUR weicht von Shopifys Steuersumme %.2f EUR ab (Differenz %.2f EUR) -- Beleg zur Sicherheit nicht angelegt.',
                     $preparedOrder['computed_total_tax'],
                     (float) $record['total_tax'],
                     $taxDiff
-                );
+                ) . ' ' . InvoiceService::diagnoseOrder($orderRow) . ' ' . self::diagnoseRecordLines($record);
                 $out['notes'] = $notes;
                 $out['record'] = $record;
                 return $out;
@@ -310,7 +312,7 @@ final class DocumentPipeline
                     $computedGross,
                     (float) $record['total_gross'],
                     $grossDiff
-                );
+                ) . ' ' . InvoiceService::diagnoseOrder($orderRow) . ' ' . self::diagnoseRecordLines($record);
                 $out['notes'] = $notes;
                 $out['record'] = $record;
                 return $out;
@@ -339,6 +341,32 @@ final class DocumentPipeline
         $out['notes'] = $notes;
 
         return $out;
+    }
+
+    /**
+     * Diagnose fuer die Fehlermeldung der Kontrollen: die berechneten Positionen
+     * (Menge, Ausgabe-Preis, Positionssumme, Steuer), wie sie ans Zielsystem gingen.
+     *
+     * @param array<string, mixed> $record aufbereitete Bestellung
+     */
+    private static function diagnoseRecordLines(array $record): string
+    {
+        $parts = [];
+        foreach ((array) ($record['lines'] ?? []) as $line) {
+            if (!is_array($line)) {
+                continue;
+            }
+            $parts[] = sprintf(
+                '[%s | Menge %s x %s = %s | Steuer %s]',
+                mb_substr(trim((string) ($line['name'] ?? '?')), 0, 30),
+                (string) ($line['out_quantity'] ?? '?'),
+                (string) ($line['out_price'] ?? '?'),
+                (string) ($line['out_line_total'] ?? '?'),
+                (string) ($line['tax_amount'] ?? '?')
+            );
+        }
+
+        return 'Berechnete Positionen: ' . (implode(' ', $parts) ?: '-');
     }
 
     /**

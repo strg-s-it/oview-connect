@@ -281,7 +281,7 @@ $healthByShop = [];
 $healthAvailable = true;
 try {
     foreach ($pdo->query(
-        "SELECT c.id, c.shop, c.label, c.health_status, c.health_checked_at, c.health_since, c.health_message, t.type_key, t.name AS type_name
+        "SELECT c.id, c.shop, c.label, c.health_status, c.health_checked_at, c.health_since, c.health_message, c.health_failures, c.health_notified_at, t.type_key, t.name AS type_name
          FROM connect_connections c JOIN connect_connector_types t ON t.id = c.connector_type_id"
     )->fetchAll() as $healthRow) {
         $healthByShop[(string) $healthRow['shop']][] = $healthRow;
@@ -325,8 +325,22 @@ $healthChip = static function (string $name, ?array $connection): string {
 };
 
 // Shops mit einer fehlerhaften Verbindung zuerst (stabil: sonst bleibt die Reihenfolge "zuletzt gesehen")
+// Deinstallierte Apps (app/uninstalled, Connect\Privacy\UninstallState) sind kein Verbindungsproblem: Token ungueltig ist dort erwartet.
+$uninstalledAtByShop = \Connect\Privacy\UninstallState::all($pdo);
+$uninstalledShops = [];
 $problemShops = [];
 foreach ($healthByShop as $healthShop => $healthConnections) {
+    $shopifyRow = null;
+    foreach ($healthConnections as $healthConnection) {
+        if ($healthConnection['type_key'] === 'shopify') {
+            $shopifyRow = $healthConnection;
+            break;
+        }
+    }
+    if (\Connect\Privacy\UninstallState::isUninstalled($uninstalledAtByShop[(string) $healthShop] ?? null, $shopifyRow)) {
+        $uninstalledShops[(string) $healthShop] = $uninstalledAtByShop[(string) $healthShop];
+        continue;
+    }
     foreach ($healthConnections as $healthConnection) {
         if ($healthConnection['health_status'] === 'error') {
             $problemShops[(string) $healthShop] = true;
@@ -453,10 +467,36 @@ require dirname(__DIR__) . '/app/_header.php';
                                                 <?php echo $healthChip('Shopify', $shopifyHealth); ?>
                                                 <?php echo $healthChip($targetHealth !== null ? (string) $targetHealth['type_name'] : 'Ziel', $targetHealth); ?>
                                             </div>
-                                            <?php if ($firstError !== null): ?>
-                                                <div class="small text-danger mt-1" style="max-width:230px" title="<?php echo htmlspecialchars((string) ($firstError['health_message'] ?? '')); ?>">
-                                                    <?php echo htmlspecialchars(mb_strimwidth(preg_replace('/^Verbindung fehlgeschlagen:\s*/', '', (string) ($firstError['health_message'] ?? '')) ?? '', 0, 70, '…')); ?>
+                                            <?php if (isset($uninstalledShops[(string) $row['shop']])): ?>
+                                                <?php $uninstalledTs = (int) strtotime($uninstalledShops[(string) $row['shop']]); ?>
+                                                <div class="small mt-1" style="max-width:230px">
+                                                    <span class="badge bg-yellow-lt">App deinstalliert</span>
+                                                    am <?php echo htmlspecialchars(date('d.m. H:i', $uninstalledTs)); ?> –
+                                                    Automatik gestoppt, Daten löscht Shopify-<code>shop/redact</code> ca. <?php echo htmlspecialchars(date('d.m.', $uninstalledTs + 48 * 3600)); ?>. Keine Fehlermails.
                                                 </div>
+                                            <?php elseif ($firstError !== null): ?>
+                                                <div class="small text-danger mt-1" style="max-width:230px" title="<?php echo htmlspecialchars((string) ($firstError['health_message'] ?? '')); ?>">
+                                                    <?php if (\Connect\Shopify\ShopBlock::matches((string) ($firstError['health_message'] ?? ''))): ?>
+                                                        <?php echo htmlspecialchars(\Connect\Shopify\ShopBlock::label((string) $firstError['health_message'])); ?> – Aufhebung nur durch Shopify, oView versucht es alle <?php echo \Connect\Shopify\ShopBlock::RETRY_HOURS; ?> Std. neu
+                                                    <?php else: ?>
+                                                        <?php echo htmlspecialchars(mb_strimwidth(preg_replace('/^Verbindung fehlgeschlagen:\s*/', '', (string) ($firstError['health_message'] ?? '')) ?? '', 0, 70, '…')); ?>
+                                                    <?php endif; ?>
+                                                </div>
+                                                <?php
+                                                // Mail-Stand zur Störung (Connect\Sync\ConnectionHealth): Ziel-Connection -> Händler + Kopie an Admin
+                                                // ab dem 3. Fehlschlag, Shopify -> nur Admin ab dem 2.
+                                                $errIsTarget = $targetHealth !== null && (int) $firstError['id'] === (int) $targetHealth['id'];
+                                                $errThreshold = $errIsTarget ? 3 : 2;
+                                                $errFailures = (int) ($firstError['health_failures'] ?? 0);
+                                                if ($firstError['health_notified_at'] !== null) {
+                                                    $mailInfo = ($errIsTarget ? 'Mail an Händler (Kopie Admin)' : 'Mail an Admin') . ' gesendet ' . date('d.m. H:i', (int) strtotime((string) $firstError['health_notified_at']));
+                                                } elseif (!$isLive) {
+                                                    $mailInfo = 'Keine Mail: Shop läuft in der alten Welt';
+                                                } else {
+                                                    $mailInfo = 'Fehlschlag ' . $errFailures . ' von ' . $errThreshold . ' – danach Mail an ' . ($errIsTarget ? 'Händler (Kopie Admin)' : 'Admin');
+                                                }
+                                                ?>
+                                                <div class="small text-secondary" style="max-width:230px"><?php echo htmlspecialchars($mailInfo); ?></div>
                                             <?php endif; ?>
                                         <?php endif; ?>
                                         <?php

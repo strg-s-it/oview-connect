@@ -76,17 +76,17 @@ final class Notifier
     /**
      * Problem sofort melden: an den Merchant (wenn eingeschaltet und Adresse bekannt), Kopie an den Admin.
      */
-    public function sendProblem(string $shop, string $subject, string $text): void
+    public function sendProblem(string $shop, string $subject, string $text): bool
     {
         $settings = $this->settings($shop);
         $admin = $this->adminEmail();
         $merchant = $settings['problems'] ? $settings['effective'] : null;
 
         if ($merchant !== null && strcasecmp($merchant, $admin) !== 0) {
-            $this->send($merchant, $subject, $text, null, $admin);
-        } else {
-            $this->send($admin, $subject, $text);
+            return $this->send($merchant, $subject, $text, null, $admin);
         }
+
+        return $this->send($admin, $subject, $text);
     }
 
     /**

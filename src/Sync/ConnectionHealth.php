@@ -19,6 +19,12 @@ use PDO;
  * einzelnen Netzfehler), hoechstens eine Mail je Ausfall, und nur fuer Shops, die in Connect
  * laufen (live_in_connect = 1). Bei Erholung kommt eine kurze Entwarnung, wenn zuvor gemailt wurde.
  *
+ * Ist die Connection das Ziel-System des Shops (connect_shops.target_connection_id), geht die Mail
+ * stattdessen an den Merchant (Kopie an den Admin, Schalter "Probleme melden"), erst ab dem dritten
+ * Fehlschlag. Shopify-Connections melden weiter nur an den Admin: der Merchant kann sie nicht beheben.
+ * Shops mit deinstallierter App (Connect\Privacy\UninstallState) bekommen keine Mails; geprueft wird weiter,
+ * damit eine Neuinstallation von selbst erkannt wird.
+ *
  * Laeuft nur in einem Scheduler gleichzeitig (GET_LOCK auf oberster Ebene, nie verschachtelt),
  * je Aufruf hoechstens MAX_PER_RUN Connections und eine Zeitgrenze.
  */
@@ -27,6 +33,9 @@ final class ConnectionHealth
     private const LOCK_NAME = 'connect_connection_health';
     private const INTERVAL_MINUTES = 10;
     private const MAX_PER_RUN = 6;
+    // Ziel-Connection (z. B. helloCash): der Merchant bekommt die Mail erst nach dieser Zahl Fehlschlaege in Folge
+    // (= rund 20 Minuten), damit kurze Ausfaelle des Kassensystems ihn nicht anschreiben
+    private const MERCHANT_AFTER_FAILURES = 3;
     private const MAX_MESSAGE = 480;
 
     public function __construct(
@@ -53,7 +62,8 @@ final class ConnectionHealth
             try {
                 $due = $this->pdo->query(
                     'SELECT c.id, c.shop, c.label, c.health_status, c.health_failures, c.health_notified_at, t.name AS type_name,
-                            COALESCE(s.live_in_connect, 0) AS live
+                            COALESCE(s.live_in_connect, 0) AS live,
+                            COALESCE(s.target_connection_id = c.id, 0) AS is_target
                      FROM connect_connections c
                      JOIN connect_connector_types t ON t.id = c.connector_type_id
                      LEFT JOIN connect_shops s ON s.shop = c.shop
@@ -133,7 +143,16 @@ final class ConnectionHealth
                  WHERE id = :id"
             )->execute(['id' => $id]);
 
-            if ($connection['health_notified_at'] !== null && (int) $connection['live'] === 1) {
+            if ($connection['health_notified_at'] !== null && (int) $connection['live'] === 1 && !\Connect\Privacy\UninstallState::forShop($this->pdo, (string) $connection['shop'])) {
+                if ((int) $connection['is_target'] === 1) {
+                    return $this->mailMerchant(
+                        $connection,
+                        'oView: Verbindung zu ' . $connection['type_name'] . ' funktioniert wieder',
+                        "Hallo,\n\ndie Verbindung von oView zu {$connection['type_name']} funktioniert wieder. Du musst nichts weiter tun.\n\n"
+                            . "Diese Meldungen kannst du in oView unter Einstellungen → Benachrichtigungen anpassen.\n"
+                    ) ? 1 : 0;
+                }
+
                 return $this->mail($connection, 'Connect: Verbindung wieder erreichbar', "Die Verbindung „{$connection['label']}“ ({$connection['type_name']}) von Shop {$connection['shop']} funktioniert wieder.") ? 1 : 0;
             }
 
@@ -148,8 +167,21 @@ final class ConnectionHealth
              WHERE id = :id"
         )->execute(['message' => $result['message'], 'failures' => $failures, 'id' => $id]);
 
-        if ($failures >= 2 && $connection['health_notified_at'] === null && (int) $connection['live'] === 1) {
-            $sent = $this->mail(
+        $isTarget = (int) $connection['is_target'] === 1;
+        if ($failures >= ($isTarget ? self::MERCHANT_AFTER_FAILURES : 2) && $connection['health_notified_at'] === null && (int) $connection['live'] === 1
+            && !\Connect\Privacy\UninstallState::forShop($this->pdo, (string) $connection['shop'])) { // deinstallierte App: kein Alarm
+            $sent = $isTarget ? $this->mailMerchant(
+                $connection,
+                'oView: Verbindung zu ' . $connection['type_name'] . ' gestört',
+                "Hallo,\n\noView erreicht {$connection['type_name']} seit etwa " . (($failures - 1) * self::INTERVAL_MINUTES) . " Minuten nicht mehr. "
+                    . "Solange das so ist, werden Bestände, Rechnungen und Produkte nicht abgeglichen.\n\n"
+                    . "Meldung: {$result['message']}\n\n"
+                    . "Meist ist der Zugangsschlüssel (API-Key bzw. Token) in {$connection['type_name']} abgelaufen oder wurde geändert. "
+                    . "Bitte prüfe ihn in oView unter „Status“ und trage bei Bedarf den neuen Schlüssel ein:\n"
+                    . $this->notifier()->appUrl((string) $connection['shop']) . "\n\n"
+                    . "Wir sind in Kopie und melden uns, falls wir helfen können. Sobald die Verbindung wieder läuft, bekommst du eine kurze Bestätigung.\n\n"
+                    . "Diese Meldungen kannst du in oView unter Einstellungen → Benachrichtigungen anpassen.\n"
+            ) : $this->mail(
                 $connection,
                 'Connect: Verbindung gestört (' . $connection['shop'] . ')',
                 "Die Verbindung „{$connection['label']}“ ({$connection['type_name']}) von Shop {$connection['shop']} antwortet seit mindestens "
@@ -165,6 +197,25 @@ final class ConnectionHealth
         }
 
         return 0;
+    }
+
+    private function notifier(): Notifier
+    {
+        return new Notifier($this->pdo, $this->config);
+    }
+
+    /**
+     * Mail an den Merchant (wenn "Probleme melden" an ist), Kopie an den Admin.
+     *
+     * @param array<string, mixed> $connection
+     */
+    private function mailMerchant(array $connection, string $subject, string $text): bool
+    {
+        try {
+            return $this->notifier()->sendProblem((string) $connection['shop'], $subject, $text);
+        } catch (\Throwable) {
+            return false;
+        }
     }
 
     /**
