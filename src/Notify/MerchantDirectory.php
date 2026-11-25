@@ -545,6 +545,41 @@ final class MerchantDirectory
     }
 
     /**
+     * Beendet das Abo eines Shops, der nur in der alten Welt steht (Token aus oview_stores), bei Shopify
+     * (Connect\Billing\SubscriptionCanceller) und liest danach den Stand neu. Vorher all() aufrufen.
+     *
+     * @return array{cancelled: list<string>, errors: list<string>}
+     * @throws \RuntimeException ohne Token oder bei unlesbarer Antwort
+     */
+    public function cancelLegacySubscription(string $shop, \Connect\Http\HttpClient $http): array
+    {
+        $token = $this->legacyTokens[$shop] ?? null;
+        if ($token === null || preg_match('/^[a-z0-9][a-z0-9\-]*$/i', $shop) !== 1) {
+            throw new \RuntimeException('Kein Shopify-Token in der alten Welt für diesen Shop.');
+        }
+        $url = 'https://' . $shop . '.myshopify.com/admin/api/' . $this->config->optional('CONNECT_SHOPIFY_API_VERSION', '2026-07') . '/graphql.json';
+        $result = \Connect\Billing\SubscriptionCanceller::run(function (string $query, array $variables) use ($http, $url, $token): array {
+            $response = $http->request('POST', $url, ['X-Shopify-Access-Token' => $token, 'Content-Type' => 'application/json'], (string) json_encode(['query' => $query, 'variables' => (object) $variables]));
+            $decoded = json_decode($response->body, true);
+            if (!$response->isSuccess() || !is_array($decoded)) {
+                throw new \RuntimeException('Shopify HTTP ' . $response->statusCode . ($response->statusCode === 401 ? ' (Token ungültig – App deinstalliert?)' : ''));
+            }
+            if (!empty($decoded['errors']) && empty($decoded['data'])) {
+                throw new \RuntimeException('GraphQL-Fehler: ' . mb_substr((string) json_encode($decoded['errors']), 0, 300));
+            }
+
+            return $decoded;
+        });
+        try {
+            $this->checkLegacyShop($shop, $http); // Stand (Abo, Abbuchung) neu merken
+        } catch (\Throwable) {
+            // Abo ist beendet, nur die Anzeige ist noch alt
+        }
+
+        return $result;
+    }
+
+    /**
      * Aktives App-Abo eines Shops der alten Welt (GraphQL, nur lesend). Umfasst auch die per REST
      * angelegten recurring_application_charges der alten Welt.
      *

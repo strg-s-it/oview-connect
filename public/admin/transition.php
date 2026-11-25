@@ -53,6 +53,49 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'provi
 $directory = new MerchantDirectory($pdo, $config);
 $merchants = $directory->all();
 
+// "Abo beenden": beendet das Shopify-Abo eines noch nicht umgestellten Shops (wirklich, bei Shopify).
+// Die App bleibt installiert und laeuft weiter, Connect sperrt nichts. Nur mit eingetipptem Shop-Namen.
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'cancel_subscription') {
+    $cancelShop = trim((string) ($_POST['shop'] ?? ''));
+    $target = null;
+    foreach ($merchants as $m) {
+        if ($m['shop'] === $cancelShop) {
+            $target = $m;
+            break;
+        }
+    }
+    if ($target === null || $target['world'] === 'live') {
+        $flashMessage = 'Abo beenden nur für Shops auf dieser Liste (noch nicht umgestellt).';
+        $flashType = 'danger';
+    } elseif (trim((string) ($_POST['confirm_shop'] ?? '')) !== $cancelShop) {
+        $flashMessage = 'Abo von ' . $cancelShop . ' NICHT beendet: der eingetippte Shop-Name hat nicht gepasst.';
+        $flashType = 'danger';
+    } else {
+        try {
+            $http = new \Connect\Http\HttpClient();
+            if ($target['world'] === 'legacy') {
+                $result = $directory->cancelLegacySubscription($cancelShop, $http);
+            } else {
+                $crypto = new Crypto($config->require('CONNECT_ENCRYPTION_KEY'));
+                $result = (new \Connect\Billing\BillingService(
+                    $pdo,
+                    new \Connect\Connector\ConnectorFactory($pdo, $crypto, $http, \Connect\Shopify\TokenRefresher::fromConfig($config)),
+                    $config
+                ))->cancel($cancelShop);
+            }
+            $summary = $result['cancelled'] !== [] ? 'beendet: ' . implode(', ', $result['cancelled']) : 'kein aktives Abo gefunden';
+            $summary .= $result['errors'] !== [] ? ' | Fehler: ' . implode(' ', $result['errors']) : '';
+            \Connect\Sync\ActivityLog::log($pdo, $cancelShop, 'shopify', null, 'subscription_cancelled', $result['errors'] === [], 'Abo vom Admin (' . $adminEmail . ') beendet, ' . $summary);
+            $flashMessage = 'Abo von ' . $cancelShop . ': ' . $summary . '. Die App bleibt installiert und läuft weiter.';
+            $flashType = $result['errors'] === [] ? 'success' : 'warning';
+        } catch (\Throwable $ex) {
+            $flashMessage = 'Abo von ' . $cancelShop . ' konnte nicht beendet werden: ' . $ex->getMessage();
+            $flashType = 'danger';
+        }
+        $merchants = $directory->all();
+    }
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'check_scopes') {
     // In Etappen (ca. 100 Shops): hoechstens ~45 s je Klick, damit kein Gateway-Timeout (oft 60 s)
     // zuschlaegt. In den letzten 15 Min. gepruefte Shops werden uebersprungen -- jeder weitere
@@ -295,6 +338,14 @@ require dirname(__DIR__) . '/app/_header.php';
                         </td>
                         <td class="small text-secondary"><?php echo $last !== null ? $e(substr((string) $last['last_sent'], 0, 10)) . ((int) $last['sent'] > 1 ? ' (' . (int) $last['sent'] . ' gesamt)' : '') : '–'; ?></td>
                         <td class="text-end">
+                            <?php if ($m['charge_state'] === 'active'): ?>
+                                <form method="post" class="m-0 d-inline" onsubmit="var n = prompt('Abo von <?php echo $e($m['shop']); ?> bei Shopify BEENDEN? Die App bleibt installiert und läuft weiter, der Merchant zahlt nur nichts mehr. Zur Bestätigung den Shop-Namen eintippen:'); if (n === null) { return false; } this.confirm_shop.value = n; return true;">
+                                    <input type="hidden" name="action" value="cancel_subscription">
+                                    <input type="hidden" name="shop" value="<?php echo $e($m['shop']); ?>">
+                                    <input type="hidden" name="confirm_shop" value="">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger" title="Beendet das Shopify-Abo dieses Shops sofort, ohne Rückerstattung">Abo beenden</button>
+                                </form>
+                            <?php endif; ?>
                             <?php if ($m['world'] !== 'legacy'): ?>
                                 <a href="migrate.php?shop=<?php echo $e(rawurlencode($m['shop'])); ?>" class="btn btn-sm<?php echo $isReady($m) ? ' btn-primary' : ''; ?>">Umzug</a>
                             <?php else: ?>

@@ -85,6 +85,24 @@ final class BillingService
         ];
     }
 
+    /**
+     * Alle aktiven Abos des Shops bei Shopify beenden (Admin-Aktion, siehe SubscriptionCanceller)
+     * und den Stand danach neu lesen.
+     *
+     * @return array{cancelled: list<string>, errors: list<string>}
+     */
+    public function cancel(string $shop): array
+    {
+        $result = SubscriptionCanceller::run(fn (string $query, array $variables): array => $this->graphQl($shop, $query, $variables));
+        try {
+            $this->refresh($shop);
+        } catch (\Throwable) {
+            // Abo ist beendet, nur der Stand in Connect ist noch alt
+        }
+
+        return $result;
+    }
+
     /** Abo hoechstens alle 6 Stunden bei Shopify abfragen (z.B. beim Oeffnen der Uebersicht). */
     public function refreshIfStale(string $shop): void
     {
