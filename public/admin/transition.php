@@ -60,6 +60,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'check
     @set_time_limit(90);
     $scopeCheck = new ScopeCheck($pdo, new Crypto($config->require('CONNECT_ENCRYPTION_KEY')), $config);
     $http = new \Connect\Http\HttpClient();
+    // Abo (letzte Abbuchung) der in Connect angelegten Shops: ueber deren Connection, wie im Dashboard
+    $crypto = new Crypto($config->require('CONNECT_ENCRYPTION_KEY'));
+    $billing = new \Connect\Billing\BillingService(
+        $pdo,
+        new \Connect\Connector\ConnectorFactory($pdo, $crypto, $http, \Connect\Shopify\TokenRefresher::fromConfig($config)),
+        $config
+    );
     $checked = 0;
     $recent = 0;
     $remaining = 0;
@@ -83,6 +90,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'check
         } else {
             $result = $scopeCheck->check($m['shop']);
             $error = $result['ok'] === null ? (string) $result['error'] : null;
+            try {
+                $billing->refresh($m['shop']);
+            } catch (\Throwable) {
+                // Abo nicht abfragbar -- die Berechtigungspruefung zaehlt trotzdem
+            }
         }
         if ($error !== null) {
             $failed[] = $m['shop'] . ': ' . $error;
@@ -234,7 +246,7 @@ require dirname(__DIR__) . '/app/_header.php';
     </div>
     <div class="table-responsive">
         <table class="table table-vcenter card-table">
-            <thead><tr><th>Shop</th><th>Welt</th><th>Shopify-Berechtigungen</th><th>helloCash-Token</th><th>Letzte Nachricht</th><th></th></tr></thead>
+            <thead><tr><th>Shop</th><th>Welt</th><th>Shopify-Berechtigungen</th><th>helloCash-Token</th><th>Letzte Abbuchung</th><th>Letzte Nachricht</th><th></th></tr></thead>
             <tbody>
                 <?php foreach ($rows as $m): ?>
                     <?php $last = $lastMessages[$m['shop']] ?? null; ?>
@@ -271,6 +283,11 @@ require dirname(__DIR__) . '/app/_header.php';
                                 <div class="text-secondary">geprüft <?php echo $e(substr((string) $m['token_checked_at'], 0, 16)); ?></div>
                             <?php endif; ?>
                         </td>
+                        <td class="small">
+                            <?php $charge = \Connect\Billing\ChargeInfo::describe($m['last_charge_at'], $m['next_charge_at'], (string) $m['charge_state']); ?>
+                            <span class="badge bg-<?php echo $e($charge['class']); ?>-lt"><?php echo $e($charge['text']); ?></span>
+                            <?php if ($m['plan_label'] !== 'unbekannt'): ?><div class="text-secondary"><?php echo $e($m['plan_label']); ?></div><?php endif; ?>
+                        </td>
                         <td class="small text-secondary"><?php echo $last !== null ? $e(substr((string) $last['last_sent'], 0, 10)) . ((int) $last['sent'] > 1 ? ' (' . (int) $last['sent'] . ' gesamt)' : '') : '–'; ?></td>
                         <td class="text-end">
                             <?php if ($m['world'] !== 'legacy'): ?>
@@ -286,13 +303,13 @@ require dirname(__DIR__) . '/app/_header.php';
                     </tr>
                 <?php endforeach; ?>
                 <?php if ($rows === []): ?>
-                    <tr><td colspan="6" class="text-secondary">Keine Shops in dieser Ansicht.</td></tr>
+                    <tr><td colspan="7" class="text-secondary">Keine Shops in dieser Ansicht.</td></tr>
                 <?php endif; ?>
             </tbody>
         </table>
     </div>
     <div class="card-footer small text-secondary">
-        Bereits umgestellte Shops sind ausgeblendet. Shopify-Berechtigungen: „geprüft“ = live bei Shopify abgefragt („Berechtigungen jetzt prüfen“, auch für Shops nur der alten Welt), „Stand alte Welt“ = vom letzten Bestätigen bzw. Öffnen der App.
+        Bereits umgestellte Shops sind ausgeblendet. Letzte Abbuchung: aus dem Ende der Abrechnungsperiode bei Shopify abgeleitet (Periodenende minus 30 Tage), nicht aus einer Buchung gelesen; gefüllt beim Klick auf „Berechtigungen jetzt prüfen“. „kein aktives Abo“ = Shopify meldet keines (gekündigt, ausgesetzt oder nie bestätigt). Im Testzeitraum gab es noch keine Abbuchung. Shopify-Berechtigungen: „geprüft“ = live bei Shopify abgefragt („Berechtigungen jetzt prüfen“, auch für Shops nur der alten Welt), „Stand alte Welt“ = vom letzten Bestätigen bzw. Öffnen der App.
         helloCash-Token: „erledigt“ = Zugriff für Connect (API v2) vollständig – entweder neu generiert und hinterlegt oder der bestehende Token der alten Welt hat ihn schon („helloCash-Token prüfen“, nur lesend; ändert sich der Token in der alten Welt, gilt die Prüfung nicht mehr).
     </div>
 </div>

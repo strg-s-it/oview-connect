@@ -100,6 +100,24 @@ try {
     // Migration 0079 fehlt
 }
 
+// Nur fuer den Admin: letzte/naechste Abbuchung des Abos (Connect\Billing\ChargeInfo, nicht fuer Merchants)
+$adminCharge = null;
+if ($isAdmin) {
+    try {
+        $chargeStmt = $pdo->prepare('SELECT plan_status, plan_last_charge_at, plan_next_charge_at FROM connect_shops WHERE shop = :shop');
+        $chargeStmt->execute(['shop' => $shop]);
+        $chargeRow = $chargeStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+        $adminCharge = \Connect\Billing\ChargeInfo::describe(
+            $chargeRow['plan_last_charge_at'] ?? null,
+            $chargeRow['plan_next_charge_at'] ?? null,
+            ($chargeRow['plan_status'] ?? null) === 'none' ? 'none' : (($chargeRow['plan_status'] ?? null) === 'ACTIVE' ? 'active' : 'unknown')
+        );
+        $adminCharge['next'] = $chargeRow['plan_next_charge_at'] ?? null;
+    } catch (\PDOException) {
+        // Migration 0116 fehlt
+    }
+}
+
 // Merchant-Uebersicht (Connect\Setup\MerchantOverview): Ampel, Probleme, Kacheln, Verlauf
 $overview = (new \Connect\Setup\MerchantOverview($pdo))->build($shop);
 // Erstinitialisierung: jeder Daten-Job (Produkte, Artikel, Mitarbeiter ...) mind. einmal erfolgreich?
@@ -191,6 +209,13 @@ $agoText = static function (?int $minutes): string {
             </div>
         </div>
     <?php endforeach; ?>
+    <?php if ($adminCharge !== null): ?>
+        <div class="small text-secondary mb-2">Nur für dich (Admin): Letzte Abbuchung des Abos
+            <span class="badge bg-<?php echo htmlspecialchars($adminCharge['class']); ?>-lt"><?php echo htmlspecialchars($adminCharge['text']); ?></span>
+            <?php if (($adminCharge['next'] ?? null) !== null): ?> · nächste <?php echo htmlspecialchars(substr((string) $adminCharge['next'], 0, 10)); ?><?php endif; ?>
+            <span title="Aus dem Ende der Abrechnungsperiode bei Shopify abgeleitet, nicht aus einer Buchung gelesen.">ⓘ</span>
+        </div>
+    <?php endif; ?>
     <?php if ($noPlan): ?>
         <div class="ov-banner warn"><span class="ov-state"><?php echo \Connect\Ui\Icon::svg('alert-triangle', 22); ?></span><div class="flex-fill">
             <div class="ov-big">Dein Abo ist noch nicht bestätigt</div>

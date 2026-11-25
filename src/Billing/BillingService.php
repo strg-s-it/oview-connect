@@ -35,7 +35,7 @@ final class BillingService
      */
     public function refresh(string $shop): array
     {
-        $data = $this->graphQl($shop, '{ currentAppInstallation { activeSubscriptions { id name status test trialDays createdAt } } }');
+        $data = $this->graphQl($shop, '{ currentAppInstallation { activeSubscriptions { id name status ' . ChargeInfo::GRAPHQL_FIELDS . ' } } }');
         $subscriptions = $data['data']['currentAppInstallation']['activeSubscriptions'] ?? [];
 
         $active = null;
@@ -53,16 +53,27 @@ final class BillingService
             $trialEnds = $end > new \DateTimeImmutable() ? $end->setTimezone(new \DateTimeZone('Europe/Vienna'))->format('Y-m-d H:i:s') : null;
         }
 
-        $this->pdo->prepare(
-            'UPDATE connect_shops SET plan = :plan, plan_status = :status, plan_subscription_id = COALESCE(:sid, plan_subscription_id),
-                 plan_trial_ends_at = :trial, plan_checked_at = NOW() WHERE shop = :shop'
-        )->execute([
+        $params = [
             'plan' => $plan,
             'status' => $active !== null ? (string) $active['status'] : 'none',
             'sid' => $active !== null ? (string) $active['id'] : null,
             'trial' => $trialEnds,
             'shop' => $shop,
-        ]);
+        ];
+        $charge = $active !== null ? ChargeInfo::fromSubscription($active) : ['last' => null, 'next' => null];
+        try {
+            $this->pdo->prepare(
+                'UPDATE connect_shops SET plan = :plan, plan_status = :status, plan_subscription_id = COALESCE(:sid, plan_subscription_id),
+                     plan_trial_ends_at = :trial, plan_last_charge_at = :last_charge, plan_next_charge_at = :next_charge,
+                     plan_checked_at = NOW() WHERE shop = :shop'
+            )->execute($params + ['last_charge' => $charge['last'], 'next_charge' => $charge['next']]);
+        } catch (\PDOException) {
+            // Migration 0116 fehlt -- Abo ohne Abbuchungsdaten speichern
+            $this->pdo->prepare(
+                'UPDATE connect_shops SET plan = :plan, plan_status = :status, plan_subscription_id = COALESCE(:sid, plan_subscription_id),
+                     plan_trial_ends_at = :trial, plan_checked_at = NOW() WHERE shop = :shop'
+            )->execute($params);
+        }
         Plans::applyIntervals($this->pdo, $shop);
 
         return [

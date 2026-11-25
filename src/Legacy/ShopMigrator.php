@@ -182,6 +182,11 @@ final class ShopMigrator
                 : 'kein aktives Abo',
             'connect' => $connect !== [] && ($connect['plan'] ?? null) !== null
                 ? (\Connect\Billing\Plans::PLANS[$connect['plan']]['name'] ?? (string) $connect['plan']) . ' · ' . (string) ($connect['plan_status'] ?? '')
+                    . ' · letzte Abbuchung: ' . \Connect\Billing\ChargeInfo::describe(
+                        isset($connect['plan_last_charge_at']) ? (string) $connect['plan_last_charge_at'] : null,
+                        isset($connect['plan_next_charge_at']) ? (string) $connect['plan_next_charge_at'] : null,
+                        ($connect['plan_status'] ?? null) === 'ACTIVE' ? 'active' : 'unknown'
+                    )['text']
                 : 'noch nicht abgefragt',
             'status' => !$legacyActive ? self::STATUS_MANUAL : ($planKey !== null ? self::STATUS_CHANGE : self::STATUS_MANUAL),
             'note' => !$legacyActive

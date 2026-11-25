@@ -150,6 +150,9 @@ final class MerchantDirectory
                 'subscription' => null,
                 'charge_active' => null,
                 'has_binding' => null,
+                'charge_state' => !isset($s['plan_status']) ? 'unknown' : ((string) $s['plan_status'] === 'none' ? 'none' : ((string) $s['plan_status'] === 'ACTIVE' ? 'active' : 'unknown')),
+                'last_charge_at' => isset($s['plan_last_charge_at']) ? (string) $s['plan_last_charge_at'] : null,
+                'next_charge_at' => isset($s['plan_next_charge_at']) ? (string) $s['plan_next_charge_at'] : null,
             ];
             unset($legacy[$shop]);
             $connectShops[$shop] = true;
@@ -196,6 +199,10 @@ final class MerchantDirectory
                 'subscription' => $live['subscription'] ?? null,
                 'charge_active' => $row['charge_active'],
                 'has_binding' => $this->legacyBindings !== null ? isset($this->legacyBindings[$shop]) : null,
+                // Abo laut letzter Live-Pruefung: '' = keines, Name = aktiv, null = nie geprueft/nicht pruefbar
+                'charge_state' => $live === null || $live['subscription'] === null ? 'unknown' : ($live['subscription'] === '' ? 'none' : 'active'),
+                'last_charge_at' => $live['last_charge_at'] ?? null,
+                'next_charge_at' => $live['next_charge_at'] ?? null,
             ];
         }
 
@@ -484,6 +491,7 @@ final class MerchantDirectory
         $granted = null;
         $error = null;
         $subscription = null;
+        $charge = ['last' => null, 'next' => null];
         if ($token === null) {
             $error = 'kein Shopify-Token in der alten Welt';
         } elseif (preg_match('/^[a-z0-9][a-z0-9\-]*$/i', $shop) !== 1) {
@@ -498,7 +506,9 @@ final class MerchantDirectory
                             $granted[] = (string) $scope['handle'];
                         }
                     }
-                    $subscription = $this->legacySubscription($shop, $token, $http);
+                    $sub = $this->legacySubscription($shop, $token, $http);
+                    $subscription = $sub['label'] ?? null;
+                    $charge = $sub !== null ? ['last' => $sub['last'], 'next' => $sub['next']] : $charge;
                 } else {
                     $error = 'Shopify HTTP ' . $response->statusCode . ($response->statusCode === 401 ? ' (Token ungültig – App deinstalliert?)' : '');
                 }
@@ -507,17 +517,28 @@ final class MerchantDirectory
             }
         }
         $params = ['shop' => $shop, 'granted' => $granted !== null ? json_encode($granted) : null, 'error' => $error];
+        $subscriptionValue = $subscription !== null ? mb_substr($subscription, 0, 255) : null;
         try {
             $this->pdo->prepare(
-                'INSERT INTO connect_legacy_scope_checks (shop, granted, error, subscription, checked_at) VALUES (:shop, :granted, :error, :subscription, CURRENT_TIMESTAMP)
-                 ON DUPLICATE KEY UPDATE granted = VALUES(granted), error = VALUES(error), subscription = VALUES(subscription), checked_at = CURRENT_TIMESTAMP'
-            )->execute($params + ['subscription' => $subscription !== null ? mb_substr($subscription, 0, 255) : null]);
+                'INSERT INTO connect_legacy_scope_checks (shop, granted, error, subscription, last_charge_at, next_charge_at, checked_at)
+                 VALUES (:shop, :granted, :error, :subscription, :last_charge, :next_charge, CURRENT_TIMESTAMP)
+                 ON DUPLICATE KEY UPDATE granted = VALUES(granted), error = VALUES(error), subscription = VALUES(subscription),
+                     last_charge_at = VALUES(last_charge_at), next_charge_at = VALUES(next_charge_at), checked_at = CURRENT_TIMESTAMP'
+            )->execute($params + ['subscription' => $subscriptionValue, 'last_charge' => $charge['last'], 'next_charge' => $charge['next']]);
         } catch (\PDOException) {
-            // Migration 0098 fehlt -- ohne Abo merken
-            $this->pdo->prepare(
-                'INSERT INTO connect_legacy_scope_checks (shop, granted, error, checked_at) VALUES (:shop, :granted, :error, CURRENT_TIMESTAMP)
-                 ON DUPLICATE KEY UPDATE granted = VALUES(granted), error = VALUES(error), checked_at = CURRENT_TIMESTAMP'
-            )->execute($params);
+            // Migration 0116 fehlt -- ohne Abbuchungsdaten merken
+            try {
+                $this->pdo->prepare(
+                    'INSERT INTO connect_legacy_scope_checks (shop, granted, error, subscription, checked_at) VALUES (:shop, :granted, :error, :subscription, CURRENT_TIMESTAMP)
+                     ON DUPLICATE KEY UPDATE granted = VALUES(granted), error = VALUES(error), subscription = VALUES(subscription), checked_at = CURRENT_TIMESTAMP'
+                )->execute($params + ['subscription' => $subscriptionValue]);
+            } catch (\PDOException) {
+                // Migration 0098 fehlt -- ohne Abo merken
+                $this->pdo->prepare(
+                    'INSERT INTO connect_legacy_scope_checks (shop, granted, error, checked_at) VALUES (:shop, :granted, :error, CURRENT_TIMESTAMP)
+                     ON DUPLICATE KEY UPDATE granted = VALUES(granted), error = VALUES(error), checked_at = CURRENT_TIMESTAMP'
+                )->execute($params);
+            }
         }
 
         return ['error' => $error, 'subscription' => $subscription];
@@ -527,16 +548,17 @@ final class MerchantDirectory
      * Aktives App-Abo eines Shops der alten Welt (GraphQL, nur lesend). Umfasst auch die per REST
      * angelegten recurring_application_charges der alten Welt.
      *
-     * @return string|null Name des Abos, '' = keines aktiv, null = nicht pruefbar
+     * @return array{label: string, last: ?string, next: ?string}|null label = Name des Abos, '' = keines aktiv;
+     *         last/next = letzte/naechste Abbuchung (ChargeInfo); null = nicht pruefbar
      */
-    private function legacySubscription(string $shop, string $token, \Connect\Http\HttpClient $http): ?string
+    private function legacySubscription(string $shop, string $token, \Connect\Http\HttpClient $http): ?array
     {
         try {
             $response = $http->request(
                 'POST',
                 'https://' . $shop . '.myshopify.com/admin/api/' . $this->config->optional('CONNECT_SHOPIFY_API_VERSION', '2026-07') . '/graphql.json',
                 ['X-Shopify-Access-Token' => $token, 'Content-Type' => 'application/json'],
-                (string) json_encode(['query' => '{ currentAppInstallation { activeSubscriptions { name status test } } }'])
+                (string) json_encode(['query' => '{ currentAppInstallation { activeSubscriptions { name status ' . \Connect\Billing\ChargeInfo::GRAPHQL_FIELDS . ' } } }'])
             );
         } catch (\Throwable) {
             return null;
@@ -549,22 +571,31 @@ final class MerchantDirectory
         foreach ($list as $sub) {
             if (is_array($sub) && strtoupper((string) ($sub['status'] ?? '')) === 'ACTIVE') {
                 $name = trim((string) ($sub['name'] ?? ''));
+                $charge = \Connect\Billing\ChargeInfo::fromSubscription($sub);
 
-                return ($name !== '' ? $name : 'aktiv') . (!empty($sub['test']) ? ' (Test)' : '');
+                return [
+                    'label' => ($name !== '' ? $name : 'aktiv') . (!empty($sub['test']) ? ' (Test)' : ''),
+                    'last' => $charge['last'],
+                    'next' => $charge['next'],
+                ];
             }
         }
 
-        return '';
+        return ['label' => '', 'last' => null, 'next' => null];
     }
 
-    /** @return array<string, array{granted: ?list<string>, error: ?string, subscription: ?string, checked_at: string}> */
+    /** @return array<string, array{granted: ?list<string>, error: ?string, subscription: ?string, last_charge_at: ?string, next_charge_at: ?string, checked_at: string}> */
     private function legacyScopeChecks(): array
     {
         try {
             try {
-                $rows = $this->pdo->query('SELECT shop, granted, error, subscription, checked_at FROM connect_legacy_scope_checks')->fetchAll();
+                $rows = $this->pdo->query('SELECT shop, granted, error, subscription, last_charge_at, next_charge_at, checked_at FROM connect_legacy_scope_checks')->fetchAll();
             } catch (\PDOException) {
-                $rows = $this->pdo->query('SELECT shop, granted, error, checked_at FROM connect_legacy_scope_checks')->fetchAll(); // Migration 0098 fehlt
+                try {
+                    $rows = $this->pdo->query('SELECT shop, granted, error, subscription, checked_at FROM connect_legacy_scope_checks')->fetchAll(); // Migration 0116 fehlt
+                } catch (\PDOException) {
+                    $rows = $this->pdo->query('SELECT shop, granted, error, checked_at FROM connect_legacy_scope_checks')->fetchAll(); // Migration 0098 fehlt
+                }
             }
             $out = [];
             foreach ($rows as $row) {
@@ -573,6 +604,8 @@ final class MerchantDirectory
                     'granted' => is_array($granted) ? array_values(array_map('strval', $granted)) : null,
                     'error' => $row['error'] !== null ? (string) $row['error'] : null,
                     'subscription' => isset($row['subscription']) ? (string) $row['subscription'] : null,
+                    'last_charge_at' => isset($row['last_charge_at']) ? (string) $row['last_charge_at'] : null,
+                    'next_charge_at' => isset($row['next_charge_at']) ? (string) $row['next_charge_at'] : null,
                     'checked_at' => (string) $row['checked_at'],
                 ];
             }
