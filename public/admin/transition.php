@@ -77,7 +77,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'check
             continue;
         }
         $checkedAt = $m['scopes_checked_at'] !== null ? strtotime((string) $m['scopes_checked_at']) : false;
-        if ($checkedAt !== false && $checkedAt > time() - 900) {
+        // Kuerzlich geprueft zaehlt nur, wenn auch die Abo-Daten (letzte Abbuchung) da sind: Shops, die vor
+        // dem Einbau gepruefte wurden oder deren Abo nie abgefragt wurde, kommen trotzdem noch einmal dran.
+        // Shops mit Fehler (Token ungueltig usw.) nicht, sonst wuerden sie jeden Klick Zeit kosten.
+        $chargeMissing = $m['scopes_error'] === null && $m['charge_state'] !== 'none'
+            && $m['last_charge_at'] === null && $m['next_charge_at'] === null;
+        if ($checkedAt !== false && $checkedAt > time() - 900 && !$chargeMissing) {
             $recent++;
             continue;
         }
